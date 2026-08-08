@@ -26,6 +26,20 @@
           <label>Profil de biome
             <select id="biome-profile"></select>
           </label>
+          <div class="budget-grid">
+            <label>Objets ciblés
+              <input id="object-count-budget" type="number" min="1" step="1">
+            </label>
+            <label>Ressources ciblées
+              <input id="resource-count-budget" type="number" min="0" step="1">
+            </label>
+          </div>
+          <p id="engine-budget-range" class="budget-hint"></p>
+          <div class="budget-meter" aria-live="polite">
+            <span>Objets générés <output id="generated-object-count">0</output></span>
+            <span>Ressources générées <output id="generated-resource-count">0</output></span>
+            <span>Budget CUO consommé <output id="consumed-spawn-budget">0</output></span>
+          </div>
           <button id="new-map" class="primary">Générer une nouvelle map</button>
         </section>
         <section>
@@ -64,6 +78,15 @@
     <script src="../Images/images-catalog.js"></script>
     <script src="../engine/bluefox3d-core.js"></script>
     <script src="../engine/object-library.js"></script>
+    <script src="../engine/object-library-p2-1.js?v=p2-1-r3"></script>
+    <script src="../engine/object-library-flora-patch.js?v=flora-skin-r1"></script>
+    <script src="../engine/runtime-budget.js?v=p2-6-r1"></script>
+    <script src="../engine/passive-object-runtime.js?v=p2-6-r1"></script>
+    <script src="../engine/npc-runtime.js?v=p2-6-r1"></script>
+    <script src="../engine/fauna-runtime.js?v=p2-6-r1"></script>
+    <script src="../engine/flora-runtime.js?v=p2-6-r1"></script>
+    <script src="../engine/flora-wind-runtime.js?v=flora-wind-r2"></script>
+    <script src="../engine/phenomenon-runtime.js?v=p2-6-r1"></script>
     <script src="../engine/biome-rules.js"></script>
     <script src="../data/custom-micro-scenes.js"></script>
     <script src="../engine/micro-scenes.js"></script>

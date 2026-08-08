@@ -46,10 +46,12 @@
 
   const inventoryEntries = (bucketName = "inventory") => {
     const inventory = BF.getProgressionState?.()[bucketName] || {};
-    return inventoryKeys().map((key) => ({
-      ...catalogEntry(key),
-      amount: Math.max(0, Number(inventory[key]) || 0)
-    }));
+    return Object.entries(inventory)
+      .map(([key, rawAmount]) => ({
+        ...catalogEntry(key),
+        amount: Math.max(0, Number(rawAmount) || 0)
+      }))
+      .filter((entry) => entry.amount > 0);
   };
 
   const currentMapId = () => BF.currentEngine?.currentMapId || null;
@@ -90,6 +92,9 @@
   };
 
   const createInventoryGrid = (entries, bucket, target) => {
+    const visibleEntries = (entries || []).filter(
+      (entry) => Math.max(0, Number(entry?.amount) || 0) > 0
+    );
     const grid = document.createElement("div");
     grid.className = "inventory-grid inventory-transfer-grid";
     grid.dataset.inventoryBucket = bucket;
@@ -99,7 +104,7 @@
       const key = event.dataTransfer?.getData("text/bluefox-inventory");
       if (key) transfer(key, target, event.shiftKey ? Number.MAX_SAFE_INTEGER : 1);
     });
-    entries.forEach((entry) => {
+    visibleEntries.forEach((entry) => {
       const article = document.createElement("article");
       article.dataset.inventoryKey = entry.key;
       article.draggable = entry.amount > 0;
@@ -115,6 +120,14 @@
       article.append(icon, amount, label);
       grid.appendChild(article);
     });
+    if (!visibleEntries.length) {
+      const empty = document.createElement("p");
+      empty.className = "inventory-empty-state";
+      empty.textContent = bucket === "deposited"
+        ? "Aucun objet stocké dans ce camp."
+        : "Le sac est vide.";
+      grid.appendChild(empty);
+    }
     return grid;
   };
 
@@ -211,13 +224,39 @@
     return true;
   };
 
+  const drawerIdentity = (drawer) => String(
+    drawer?.getAttribute("aria-label") ||
+    drawer?.querySelector("h2")?.textContent ||
+    ""
+  ).trim().toLocaleLowerCase("fr");
+
+  const isInventoryDrawer = (drawer) =>
+    drawerIdentity(drawer).includes("inventaire");
+
+  const cleanupForeignDrawerContent = () => {
+    document.querySelectorAll(".drawer, .full-screen-panel").forEach((drawer) => {
+      if (isInventoryDrawer(drawer)) return;
+      drawer.querySelectorAll(".inventory-sections").forEach((sections) =>
+        sections.remove()
+      );
+      drawer.querySelectorAll(
+        ".inventory-grid:not(.inventory-transfer-grid)"
+      ).forEach((grid) => {
+        grid.hidden = false;
+      });
+    });
+  };
+
   const render = () => {
-    const grid = document.querySelector(
-      ".drawer > .inventory-grid:not(.inventory-transfer-grid), " +
-      ".drawer .inventory-grid:not(.inventory-transfer-grid)"
+    cleanupForeignDrawerContent();
+    const drawer = [...document.querySelectorAll(".drawer, .full-screen-panel")]
+      .find(isInventoryDrawer);
+    if (!drawer) return false;
+    const grid = drawer.querySelector(
+      ":scope > .inventory-grid:not(.inventory-transfer-grid), " +
+      ".inventory-grid:not(.inventory-transfer-grid)"
     );
     if (!grid) return false;
-    const drawer = grid.closest(".drawer");
     const campAccessible = canAccessCampInventory();
     if (campAccessible) autoDeposit();
     const personal = inventoryEntries("inventory");
@@ -236,6 +275,7 @@
     if (!sections) {
       sections = document.createElement("div");
       sections.className = "inventory-sections";
+      sections.dataset.bluefoxInventoryBridge = "true";
       grid.before(sections);
     }
     grid.hidden = true;

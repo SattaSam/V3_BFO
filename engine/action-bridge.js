@@ -1,4 +1,4 @@
-(function (global) {
+﻿(function (global) {
   "use strict";
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
@@ -99,7 +99,16 @@
           candidates[0].userData.requestedInteraction = action.type;
           candidates[0].userData.requestedInteractionSource = "mission";
           candidates[0].userData.missionSubject = action.params?.subject || null;
-          engine.targetInteraction(candidates[0]);
+
+          const accepted = engine.targetInteraction(candidates[0]);
+          if (accepted === false) {
+            candidates[0].userData.requestedInteraction = null;
+            candidates[0].userData.requestedInteractionSource = null;
+            candidates[0].userData.missionSubject = null;
+            candidates[0].userData.lastInteractionAt = performance.now();
+            engine.callbacks?.onAction?.("mission-interaction-refused");
+            return false;
+          }
           return true;
         }
         case Missions.ActionType.EXPLORE_ZONE: {
