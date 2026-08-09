@@ -75,7 +75,8 @@
       binding: "instance",
       instanceId,
       objectId: RELIC_ID,
-      cuoType: "tech_relic"
+      cuoType: "tech_relic",
+      mapId: BF.currentEngine?.currentMapId || null
     });
     m.memory?.save?.();
     return true;
@@ -90,97 +91,41 @@
     const existing = findMissionRelic(engine);
     if (existing) return bindTarget(existing);
 
-    const template = BF.MicroScenes?.get?.(SCENE_ID);
-    if (!template || !BF.ObjectSpawner) return false;
+    const definition = BF.maps?.[engine.currentMapId];
+    if (!definition || !BF.PersistentMicroScenes) return false;
 
-    const origin = chooseSafeOrigin(engine);
-    if (!origin) return false;
-
-    const spawner = new BF.ObjectSpawner({
-      THREE: engine.THREE,
-      scene: engine.currentMap.group,
-      palette: BF.maps?.[engine.currentMapId]?.palette
+    const record = BF.PersistentMicroScenes.ensure(definition, {
+      missionId: RECON,
+      microSceneId: SCENE_ID,
+      persistent: true,
+      spawnOnce: true,
+      anchor: null,
+      rotation: 0
     });
 
-    const records = spawner.spawnMicroScene(SCENE_ID, {
-      origin: { x: origin.x, y: 0, z: origin.z },
-      rotation: 0,
-      scene: engine.currentMap.group,
-      force: true,
-      source: "reconnaissance-pattern-validation"
-    });
+    if (!record) return false;
 
-    let relicHitbox = null;
+    BF.PersistentMicroScenes.spawnForBuiltMap(
+      engine.THREE,
+      engine.currentMap,
+      definition
+    );
 
-    records.forEach((record, index) => {
-      const root = record?.root;
-      if (!root) return;
-
-      root.userData.bibleMissionId = RECON;
-      root.userData.biblePatternValidation = true;
-
-      if (index === 0) {
-        root.name = `BiblePatternValidation:${RECON}`;
-      }
-
-      const hitbox = record.instance?.hitbox;
-      if (hitbox) {
-        hitbox.userData.bibleMissionId = RECON;
-        hitbox.userData.biblePatternValidation = true;
-
-        const id = String(
-          hitbox.userData.functional?.id ||
-          hitbox.userData.catalogId ||
-          root.userData.functional?.id ||
-          root.userData.catalogId ||
-          ""
-        );
-
-        if (id === RELIC_ID) {
-          relicHitbox = hitbox;
-        }
-
-        if (!engine.currentMap.interactables.includes(hitbox)) {
-          engine.currentMap.interactables.push(hitbox);
-        }
-      }
-
-      (record.instance?.colliders || []).forEach((collider) => {
-        const position = collider.offset.clone()
-          .applyAxisAngle(new engine.THREE.Vector3(0, 1, 0), root.rotation.y)
-          .add(root.position);
-
-        engine.currentMap.colliders.push({
-          position,
-          radius: collider.radius,
-          owner: root
-        });
-      });
-    });
-
-    engine.character?.setColliders?.(engine.currentMap.colliders);
-
+    const relicHitbox = findMissionRelic(engine);
     if (!relicHitbox) {
-      relicHitbox = findMissionRelic(engine);
-    }
-
-    if (!relicHitbox) {
-      console.error("[BlueFox] Test patron Reconnaissance : relique non trouvée après spawn.");
+      console.error(
+        "[BlueFox] Reconnaissance : relique persistante absente après restauration.",
+        { mapId: engine.currentMapId, record }
+      );
       return false;
     }
 
     bindTarget(relicHitbox);
+    engine.character?.setColliders?.(engine.currentMap.colliders || []);
 
     engine.callbacks?.onStatus?.(
-      "Test patron Reconnaissance : une relique missionnelle est détectée sur ce territoire."
+      "Une relique missionnelle persistante est détectée sur ce territoire."
     );
-
-    console.log("[BlueFox] RELIQUE TEST PATRON SPAWNÉE", {
-      mapId: engine.currentMapId,
-      origin,
-      instanceId: relicHitbox.userData.instanceId,
-      bibleTarget: manager()?.memory?.getFact?.(`bibleTarget:${RECON}`, null)
-    });
 
     return true;
   }
