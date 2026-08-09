@@ -213,6 +213,9 @@
     ].includes(event.type)) return true;
     const bound = manager?.memory?.getFact?.(`bibleTarget:${missionId}`);
     if (!bound || (!bound.instanceId && !bound.objectId && !bound.cuoType)) return true;
+    if (bound.binding === "instance" && bound.instanceId) {
+      return String(event.instanceId || "") === String(bound.instanceId);
+    }
     const eventType = String(event.detail?.cuoType || "").toLowerCase();
     const sameType = bound.cuoType && eventType === String(bound.cuoType).toLowerCase();
     const sameDefinition = bound.objectId &&
@@ -387,6 +390,9 @@
     const bound = engine?.missionManager?.memory?.getFact?.(`bibleTarget:${missionId}`);
     if (!bound || (!bound.instanceId && !bound.objectId && !bound.cuoType)) return true;
     const identity = identityOf(resolved);
+    if (bound.binding === "instance" && bound.instanceId) {
+      return identity.instanceId === String(bound.instanceId);
+    }
     const sameType = bound.cuoType && identity.cuoType === String(bound.cuoType).toLowerCase();
     const sameDefinition = bound.objectId &&
       identity.objectId === String(bound.objectId).toLowerCase();

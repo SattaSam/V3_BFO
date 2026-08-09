@@ -169,10 +169,10 @@
 
       priority: 60,
       passivePriorityAxis: "research",
+      targetBinding: "instance",
 
       trigger: Object.freeze({
         type: "interaction.observe",
-        subject: "components",
         tagsAny: Object.freeze([
           "technology",
           "ruin"

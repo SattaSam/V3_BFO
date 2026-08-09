@@ -1762,6 +1762,7 @@
       // Évite que l’ancien plateau reste superposé au nouveau (z-fighting).
       previousMap?.group?.removeFromParent();
       previousMap?.dispose();
+      BF.bibleRuntime?.renderCurrentSite?.(this);
       if (announce) {
         if (mapId === "crystal" || mapId === "jungle") {
           this.callbacks.onMapChange(mapId);
@@ -2660,6 +2661,7 @@
       this.updateRoutine(now);
       this.updateInteraction(now);
       this.missionManager?.update(now);
+      BF.bibleRuntime?.updateCompletionGates?.(now);
       this.updateAutonomy(now);
       this.ensureActivity(now);
       this.updateInformationLayers(now);

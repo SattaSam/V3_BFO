@@ -558,6 +558,17 @@
     if (!isObject(mission.slots)) {
       add(errors, missionId, "slots", "objet requis.");
     }
+    if (
+      mission.targetBinding != null &&
+      !["instance", "definition"].includes(mission.targetBinding)
+    ) {
+      add(
+        errors,
+        missionId,
+        "targetBinding",
+        "doit valoir instance ou definition."
+      );
+    }
 
     validatePatternUse(
       mission,

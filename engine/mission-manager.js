@@ -19,13 +19,28 @@
         [this.primaryMissionId, ...rememberedIds]
           .filter(Boolean)
           .filter((id) => this.definition(id))
+          .filter((id) =>
+            this.memory.state.missionLifecycle?.[id]?.status !== "completed"
+          )
           .filter((id) => !this.isLegacyUnscopedSiteMission(id))
       )];
       Object.keys(this.memory.state.missionLifecycle || {}).forEach((id) => {
         if (!this.isLegacyUnscopedSiteMission(id)) return;
         this.memory.state.missionLifecycle[id].status = "available";
       });
-      this.trees = new Map(this.activeMissionIds.map((id) => [
+      const completedIds = Object.keys(
+        this.memory.state.missionLifecycle || {}
+      ).filter((id) =>
+        this.memory.state.missionLifecycle[id]?.status === "completed" &&
+        this.definition(id) &&
+        this.memory.state.missions?.[id] &&
+        !this.isLegacyUnscopedSiteMission(id)
+      );
+      const restorableIds = [...new Set([
+        ...this.activeMissionIds,
+        ...completedIds
+      ])];
+      this.trees = new Map(restorableIds.map((id) => [
         id,
         this.planner.restoreOrCreate(id)
       ]));
@@ -818,7 +833,9 @@
               Missions.definitions[id].instanceScope || "global",
             progress: this.trees.has(id)
               ? this.treeProgress(this.trees.get(id))
-              : 0,
+              : this.memory.state.missionLifecycle[id].status === "completed"
+                ? 1
+                : 0,
             journalIntro: Missions.definitions[id].journalIntro ||
               `Cette mission est apparue lorsque ma progression a atteint un nouveau seuil. Je veux maintenant vérifier méthodiquement ce que ces découvertes rendent possible.`,
             discoveryReason: this.memory.state.missionLifecycle[id].discoveryReason,

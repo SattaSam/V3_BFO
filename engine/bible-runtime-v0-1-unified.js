@@ -41,12 +41,10 @@
       this.unsubscribeObjectEvents = null;
       this.activationEventIds = new Set();
       this.started = false;
+      this.lastGateReviewAt = 0;
       this.lastActivationAttempt = null;
       this.boundMissionState = (event) =>
         this.onMissionState(event.detail || BF.getMissionState?.() || {});
-      this.boundMapState = () => global.setTimeout?.(
-        () => this.renderCurrentSite(), 0
-      );
     }
 
     defaultState() {
@@ -479,6 +477,7 @@
         }
 
         manager.memory?.setFact?.(`bibleTarget:${mission.id}`, {
+          binding: mission.targetBinding || "definition",
           instanceId: event.instanceId || null,
           objectId: event.objectId || null,
           cuoType: event.cuoType || null
@@ -693,11 +692,19 @@
         if (kind) result.push({ kind, object });
       });
 
-      if (engine.currentMapId === "crystal") {
+      const site = this.manager()?.memory?.state?.siteProgression?.[
+        engine.currentMapId
+      ];
+      if (
+        Number(site?.stage) >= 1 &&
+        ["camp", "refuge", "base"].includes(site?.kind) &&
+        Number.isFinite(Number(site?.anchor?.x)) &&
+        Number.isFinite(Number(site?.anchor?.z))
+      ) {
         result.push({
-          kind: "camp",
-          fallback: true,
-          position: { x: 0, z: 8 }
+          kind: site.kind,
+          site: true,
+          position: site.anchor
         });
       }
 
@@ -742,6 +749,25 @@
     canFinalizeMission(missionId) {
       const mission = this.byId.get(missionId);
       return !mission?.completionGate || this.gateSatisfied(mission);
+    }
+
+    updateCompletionGates(now = performance.now()) {
+      if (now - this.lastGateReviewAt < 500) return false;
+      this.lastGateReviewAt = now;
+      const manager = this.manager();
+      if (!manager) return false;
+      const waiting = this.catalog.some((mission) => {
+        if (!mission.completionGate) return false;
+        const lifecycle = manager.memory?.state?.missionLifecycle?.[mission.id];
+        const tree = manager.trees?.get?.(mission.id);
+        return lifecycle?.status === "active" && tree?.root?.isComplete;
+      });
+      if (!waiting) return false;
+      const before = JSON.stringify(manager.memory.state.missionLifecycle);
+      manager.syncLifecycleFromTrees?.();
+      const changed = before !== JSON.stringify(manager.memory.state.missionLifecycle);
+      if (changed) manager.publish?.();
+      return changed;
     }
 
     installCompletionGate() {
@@ -815,8 +841,7 @@
       };
     }
 
-    attachSiteRecords(records, site) {
-      const engine = BF.currentEngine;
+    attachSiteRecords(records, site, engine = BF.currentEngine) {
       const map = engine?.currentMap;
       if (!map || !records?.length) return false;
       records.forEach((record, index) => {
@@ -842,8 +867,7 @@
       return true;
     }
 
-    renderSite(site) {
-      const engine = BF.currentEngine;
+    renderSite(site, engine = BF.currentEngine) {
       const map = engine?.currentMap;
       if (!site?.id || !site?.microSceneId || !site?.anchor) return false;
       if (!engine?.THREE || !map?.group || !BF.ObjectSpawner) return false;
@@ -858,7 +882,7 @@
         site.microSceneId,
         { origin: site.anchor, scene: map.group, force: true, source: `site:${site.id}` }
       );
-      return this.attachSiteRecords(records, site);
+      return this.attachSiteRecords(records, site, engine);
     }
 
     applyEffects(mission) {
@@ -905,10 +929,10 @@
       return true;
     }
 
-    renderCurrentSite() {
-      const mapId = BF.currentEngine?.currentMapId;
-      const site = this.manager()?.memory?.state?.siteProgression?.[mapId];
-      return site ? this.renderSite(site) : false;
+    renderCurrentSite(engine = BF.currentEngine) {
+      const mapId = engine?.currentMapId;
+      const site = engine?.missionManager?.memory?.state?.siteProgression?.[mapId];
+      return site ? this.renderSite(site, engine) : false;
     }
 
     onMissionState(state) {
@@ -957,10 +981,6 @@
         "bluefox:mission-state",
         this.boundMissionState
       );
-      global.removeEventListener?.("bluefox:map-state", this.boundMapState);
-      global.addEventListener?.("bluefox:map-state", this.boundMapState);
-      global.setTimeout?.(() => this.renderCurrentSite(), 0);
-
       return Boolean(this.unsubscribeObjectEvents);
     }
 
