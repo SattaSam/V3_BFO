@@ -83,7 +83,8 @@
 
   const EFFECT_TYPES = Object.freeze([
     "inventory.add",
-    "world.spawn"
+    "inventory.consume",
+    "site.establish"
   ]);
 
   const COMPLETION_GATE_TYPES = Object.freeze([
@@ -420,11 +421,10 @@
         return;
       }
 
-      if (!isNonEmptyString(effect.objectId)) {
-        add(errors, missionId, `${path}.objectId`, "objet requis.");
-      }
-
       if (effect.type === "inventory.add") {
+        if (!isNonEmptyString(effect.objectId)) {
+          add(errors, missionId, `${path}.objectId`, "objet requis.");
+        }
         if (
           effect.destination != null &&
           !["bluefox", "base"].includes(effect.destination)
@@ -444,7 +444,22 @@
         }
       }
 
-      if (effect.type === "world.spawn") {
+      if (effect.type === "inventory.consume") {
+        if (!isNonEmptyString(effect.inventoryKey)) {
+          add(errors, missionId, `${path}.inventoryKey`, "clé requise.");
+        }
+        if (!Number.isFinite(Number(effect.quantity)) || Number(effect.quantity) < 1) {
+          add(errors, missionId, `${path}.quantity`, "doit être >= 1.");
+        }
+      }
+
+      if (effect.type === "site.establish") {
+        if (!SHELTER_KINDS.includes(effect.kind)) {
+          add(errors, missionId, `${path}.kind`, "camp, refuge ou base requis.");
+        }
+        if (!isNonEmptyString(effect.microSceneId)) {
+          add(errors, missionId, `${path}.microSceneId`, "micro-scène requise.");
+        }
         const placement = effect.placement || {};
         if (!PLACEMENT_MODES.includes(placement.mode)) {
           add(
@@ -503,7 +518,7 @@
 
       if (["build", "craft"].includes(step.action)) {
         const message =
-          "BUILD/CRAFT doit migrer vers effects (inventory.add ou world.spawn) en V0.1.";
+          "BUILD/CRAFT doit migrer vers effects (inventory.add, inventory.consume ou site.establish) en V0.1.";
         if (compatibility === "legacy-v0") {
           add(warnings, missionId, `pattern.${mission.pattern}`, message);
         } else {

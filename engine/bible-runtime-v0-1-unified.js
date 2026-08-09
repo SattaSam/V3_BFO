@@ -44,6 +44,9 @@
       this.lastActivationAttempt = null;
       this.boundMissionState = (event) =>
         this.onMissionState(event.detail || BF.getMissionState?.() || {});
+      this.boundMapState = () => global.setTimeout?.(
+        () => this.renderCurrentSite(), 0
+      );
     }
 
     defaultState() {
@@ -792,6 +795,122 @@
       Manager.prototype.__bibleUnifiedGateV01 = true;
     }
 
+    resolveSpawnOrigin(effect) {
+      const engine = BF.currentEngine;
+      const capsule = engine?.currentMap?.crashCapsule;
+      const player = engine?.character?.root?.position;
+      const anchor = effect?.placement?.anchor === "crash-capsule" && capsule
+        ? capsule.position : player;
+      if (!anchor) return null;
+      const distance = Math.max(4, Number(effect?.placement?.distance) || 7);
+      let dx = Number(anchor.x) || 0;
+      let dz = Number(anchor.z) || 0;
+      const length = Math.hypot(dx, dz);
+      if (length < 0.1) { dx = 1; dz = 0; }
+      else { dx /= length; dz /= length; }
+      return {
+        x: (Number(anchor.x) || 0) + dx * distance,
+        y: 0,
+        z: (Number(anchor.z) || 0) + dz * distance
+      };
+    }
+
+    attachSiteRecords(records, site) {
+      const engine = BF.currentEngine;
+      const map = engine?.currentMap;
+      if (!map || !records?.length) return false;
+      records.forEach((record, index) => {
+        const root = record.root;
+        if (!root) return;
+        root.userData.bibleMissionId = site.missionId;
+        root.userData.establishedSite = site.id;
+        if (index === 0) {
+          root.name = `BlueFoxSite:${site.id}`;
+          root.userData.catalogId = site.kind;
+          root.userData.libraryType = site.kind;
+          root.userData.shelterKind = site.kind;
+        }
+        if (record.instance?.hitbox) map.interactables.push(record.instance.hitbox);
+        (record.instance?.colliders || []).forEach((collider) => {
+          const position = collider.offset.clone().applyAxisAngle(
+            new engine.THREE.Vector3(0, 1, 0), root.rotation.y
+          ).add(root.position);
+          map.colliders.push({ position, radius: collider.radius, owner: root });
+        });
+      });
+      engine.character?.setColliders?.(map.colliders);
+      return true;
+    }
+
+    renderSite(site) {
+      const engine = BF.currentEngine;
+      const map = engine?.currentMap;
+      if (!site?.id || !site?.microSceneId || !site?.anchor) return false;
+      if (!engine?.THREE || !map?.group || !BF.ObjectSpawner) return false;
+      if (site.mapId !== engine.currentMapId) return false;
+      if (map.group.getObjectByProperty?.("name", `BlueFoxSite:${site.id}`)) return true;
+      const spawner = new BF.ObjectSpawner({
+        THREE: engine.THREE,
+        scene: map.group,
+        palette: BF.maps?.[engine.currentMapId]?.palette
+      });
+      const records = spawner.spawnMicroScene(
+        site.microSceneId,
+        { origin: site.anchor, scene: map.group, force: true, source: `site:${site.id}` }
+      );
+      return this.attachSiteRecords(records, site);
+    }
+
+    applyEffects(mission) {
+      const effects = mission.effects || [];
+      if (!effects.length) return true;
+      const memory = this.manager()?.memory;
+      const receiptId = `${mission.id}:completion:v${mission.version || 1}`;
+      if (!memory) return false;
+      if (memory.hasEffectReceipt?.(receiptId)) {
+        this.renderCurrentSite();
+        return true;
+      }
+      const consume = effects.find((effect) => effect.type === "inventory.consume");
+      const establish = effects.find((effect) => effect.type === "site.establish");
+      if (!establish || !BF.MicroScenes?.get?.(establish.microSceneId)) return false;
+      const origin = this.resolveSpawnOrigin(establish);
+      if (!origin) return false;
+      if (consume) {
+        const quantity = Number(consume.quantity) || 0;
+        if ((BF.progression?.availableInventory?.([consume.inventoryKey]) || 0) < quantity) {
+          return false;
+        }
+        const removed = BF.consumeInventoryPoolOnce?.(
+          receiptId, [consume.inventoryKey], quantity
+        );
+        if (removed !== quantity) return false;
+      }
+      const mapId = BF.currentEngine?.currentMapId;
+      const site = {
+        id: `${mapId}:${establish.kind}:primary`,
+        stage: Math.max(1, Number(establish.stage) || 1),
+        kind: establish.kind,
+        mapId,
+        missionId: mission.id,
+        microSceneId: establish.microSceneId,
+        anchor: clone(origin),
+        interactionRadius: 8,
+        establishedAt: Date.now()
+      };
+      memory.state.siteProgression[mapId] = site;
+      memory.recordEffectReceipt?.(receiptId, { missionId: mission.id, siteId: site.id });
+      memory.save?.();
+      this.renderSite(site);
+      return true;
+    }
+
+    renderCurrentSite() {
+      const mapId = BF.currentEngine?.currentMapId;
+      const site = this.manager()?.memory?.state?.siteProgression?.[mapId];
+      return site ? this.renderSite(site) : false;
+    }
+
     onMissionState(state) {
       for (const mission of this.catalog) {
         const entry = this.findMissionEntry(state, mission.id);
@@ -804,9 +923,7 @@
           lifecycle?.status === "completed" &&
           !this.state.effectsApplied[mission.id]
         ) {
-          // Les effects sont raccordés par les adaptateurs existants.
-          // Marque uniquement les missions sans effect comme traitées ici.
-          if (!(mission.effects || []).length) {
+          if (this.applyEffects(mission)) {
             this.state.effectsApplied[mission.id] = Date.now();
             this.saveState();
           }
@@ -840,6 +957,9 @@
         "bluefox:mission-state",
         this.boundMissionState
       );
+      global.removeEventListener?.("bluefox:map-state", this.boundMapState);
+      global.addEventListener?.("bluefox:map-state", this.boundMapState);
+      global.setTimeout?.(() => this.renderCurrentSite(), 0);
 
       return Boolean(this.unsubscribeObjectEvents);
     }

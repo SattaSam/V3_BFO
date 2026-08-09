@@ -74,10 +74,19 @@
       // appliquera directement cet effet.
       effects: Object.freeze([
         Object.freeze({
-          type: "world.spawn",
-          objectId: "camp",
+          type: "inventory.consume",
+          inventoryKey: "wood",
+          quantity: 10
+        }),
+        Object.freeze({
+          type: "site.establish",
+          kind: "camp",
+          stage: 1,
+          microSceneId: "MSC-CUSTOM-CAMP",
           placement: Object.freeze({
-            mode: "near-bluefox"
+            mode: "near-bluefox",
+            anchor: "crash-capsule",
+            distance: 7
           })
         })
       ]),

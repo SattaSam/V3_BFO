@@ -207,6 +207,10 @@
   };
 
   const eventMatchesBoundTarget = (manager, missionId, event) => {
+    if ([
+      BF.ObjectEvents?.types.RESOURCE_COLLECTED,
+      BF.ObjectEvents?.types.RESOURCE_EXTRACTED
+    ].includes(event.type)) return true;
     const bound = manager?.memory?.getFact?.(`bibleTarget:${missionId}`);
     if (!bound || (!bound.instanceId && !bound.objectId && !bound.cuoType)) return true;
     const eventType = String(event.detail?.cuoType || "").toLowerCase();
@@ -216,9 +220,13 @@
     return Boolean(sameType || sameDefinition);
   };
 
-  const fanOut = (manager, event, excludedNodeId = null) => {
-    if (!manager) return 0;
+  const applyObjectEventProgress = (manager, event) => {
+    if (!manager || manager.memory?.hasProcessedObjectEvent?.(event.id)) {
+      return { changed: 0, currentMatched: false };
+    }
     let changed = 0;
+    let currentMatched = false;
+    const current = manager.currentAction;
     const trees = manager.trees?.size
       ? manager.trees
       : manager.tree
@@ -233,11 +241,13 @@
       if (!eventMatchesBoundTarget(manager, missionId, event)) return;
       let treeChanged = false;
       tree.availableLeaves().forEach((node) => {
-        if (tree === manager.tree && node.id === excludedNodeId) return;
         if (node.isComplete || !eventMatchesNode(event, node)) return;
         if (node.increment(Math.max(1, Number(event.quantity) || 1))) {
           changed += 1;
           treeChanged = true;
+          if (current?.missionId === missionId && current?.nodeId === node.id) {
+            currentMatched = true;
+          }
         }
       });
       if (treeChanged) {
@@ -245,12 +255,40 @@
         manager.memory.saveTree(tree);
       }
     });
+    manager.memory?.markProcessedObjectEvent?.(event.id);
+    if (currentMatched) {
+      const detail = {
+        ...(event.detail || {}),
+        kind: event.detail?.kind || event.inventoryKey || event.family,
+        amount: Math.max(1, Number(event.quantity) || 1),
+        objectId: event.objectId,
+        instanceId: event.instanceId,
+        mapId: event.mapId,
+        zoneId: event.zoneId,
+        eventType: event.type
+      };
+      manager.memory.remember(current.type, detail);
+      manager.memory.remember("action-completed", current);
+      manager.currentAction = null;
+      manager.retryAfter = performance.now() + 650;
+    } else {
+      manager.memory?.remember?.(event.type, {
+        ...(event.detail || {}),
+        eventId: event.id,
+        amount: Math.max(1, Number(event.quantity) || 1),
+        objectId: event.objectId,
+        instanceId: event.instanceId
+      });
+    }
     if (changed) {
       manager.syncLifecycleFromTrees?.();
       manager.reevaluatePendingActivations?.();
+      manager.catalogController?.schedule?.();
       manager.publish();
+    } else {
+      manager.memory?.save?.();
     }
-    return changed;
+    return { changed, currentMatched };
   };
 
   const installMissionBridge = () => {
@@ -258,7 +296,11 @@
     installed.mission = true;
     const proto = Missions.MissionManager.prototype;
     proto.consumeObjectEvent = function consumeObjectEvent(event) {
-      if (BF.bibleRuntime?.isActivationEvent?.(event.id)) {
+      const isAcquisition = [
+        BF.ObjectEvents.types.RESOURCE_COLLECTED,
+        BF.ObjectEvents.types.RESOURCE_EXTRACTED
+      ].includes(event.type);
+      if (BF.bibleRuntime?.isActivationEvent?.(event.id) && !isAcquisition) {
         this.memory.remember(event.type, {
           ...(event.detail || {}),
           activationOnly: true,
@@ -266,47 +308,8 @@
         });
         return false;
       }
-      const mappedType = event.type === BF.ObjectEvents.types.RESOURCE_COLLECTED
-        ? Missions.ActionType.COLLECT
-        : event.type === BF.ObjectEvents.types.RESOURCE_EXTRACTED
-          ? Missions.ActionType.EXTRACT
-        : ({
-            observe: Missions.ActionType.OBSERVE,
-            inspect: Missions.ActionType.INSPECT,
-            analyze: Missions.ActionType.ANALYZE
-          })[event.detail?.interactionMode] || Missions.ActionType.OBSERVE;
-      const detail = { ...(event.detail || {}), kind: event.detail?.kind || event.inventoryKey || event.family, amount: Math.max(1, Number(event.quantity) || 1), objectId: event.objectId, instanceId: event.instanceId, mapId: event.mapId, zoneId: event.zoneId, eventType: event.type };
-      const current = this.currentAction;
-      let currentConsumed = false;
-      const compatibleStudy = isStudyAction(current?.type) && mappedType === Missions.ActionType.OBSERVE;
-      const compatibleAcquisition =
-        [Missions.ActionType.COLLECT, Missions.ActionType.EXTRACT].includes(current?.type) &&
-        [Missions.ActionType.COLLECT, Missions.ActionType.EXTRACT].includes(mappedType);
-      if (
-        current &&
-        (current.type === mappedType || compatibleStudy || compatibleAcquisition)
-      ) {
-        const currentTree =
-          this.trees?.get?.(current.missionId) ||
-          (this.tree?.find?.(current.nodeId) ? this.tree : null) ||
-          [...(this.trees?.values?.() || [])].find((tree) =>
-            tree.find?.(current.nodeId)
-          ) ||
-          null;
-        const node = currentTree?.find?.(current.nodeId) || null;
-        if (
-          node &&
-          eventMatchesBoundTarget(this, current.missionId, event) &&
-          eventMatchesNode(event, node)
-        ) {
-          currentConsumed = this.notifyActionCompleted(current.type, detail, {
-            passive: false
-          });
-        }
-      }
-      const changed = fanOut(this, event, currentConsumed ? current?.nodeId : null);
-      if (!currentConsumed) this.memory.remember(event.type, detail);
-      return currentConsumed || changed > 0;
+      const result = applyObjectEventProgress(this, event);
+      return result.currentMatched || result.changed > 0;
     };
     const originalCreate = Missions.MissionManager.create;
     Missions.MissionManager.create = function createWithObjectEvents(options) {
