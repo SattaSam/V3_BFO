@@ -639,6 +639,18 @@ $("#move-mode").onclick = event => {
 };
 $("#reload-cuo").onclick = () => location.reload();
 
+$("#choose-saves-folder").onclick = async () => {
+  try {
+    const handle = await chooseSavesDirectory();
+    toast(`Dossier de sauvegarde sélectionné : ${handle.name}`);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      console.error("[CUO Lab] Sélection du dossier saves impossible :", error);
+      toast(`Dossier saves non sélectionné : ${error.message}`);
+    }
+  }
+};
+
 const previewCanvas = $("#object-preview");
 const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
 previewRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
@@ -683,6 +695,185 @@ $("#close-preview").onclick = () => {
   document.querySelectorAll(".catalog-card").forEach(card => card.classList.remove("previewed"));
 };
 
+
+const CUSTOM_SCENES_STORAGE_KEY = "bluefox_custom_micro_scenes_v1";
+
+function loadSavedCustomScenes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CUSTOM_SCENES_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("[CUO Lab] Impossible de relire les micro-scènes locales.", error);
+    return [];
+  }
+}
+
+function validateCustomSceneTemplate(template) {
+  if (!template || !/^MSC-CUSTOM-[A-Z0-9-]+$/.test(template.id || "")) {
+    throw new Error("Identifiant de micro-scène invalide.");
+  }
+  if (!Array.isArray(template.objects) || !template.objects.length) {
+    throw new Error("La micro-scène ne contient aucun objet.");
+  }
+  for (const entry of template.objects) {
+    if (!library.exists(entry.type)) {
+      throw new Error(`Objet CUO inconnu : ${entry.type}`);
+    }
+    if (!Array.isArray(entry.offset) || entry.offset.length !== 3) {
+      throw new Error(`Offset invalide pour ${entry.type}`);
+    }
+    if (!Array.isArray(entry.rotation) || entry.rotation.length !== 3) {
+      throw new Error(`Rotation invalide pour ${entry.type}`);
+    }
+  }
+  return true;
+}
+
+function saveCustomSceneLocally(template) {
+  validateCustomSceneTemplate(template);
+
+  const current = loadSavedCustomScenes();
+  const next = current.filter(scene => scene?.id !== template.id);
+  next.push(template);
+
+  localStorage.setItem(CUSTOM_SCENES_STORAGE_KEY, JSON.stringify(next));
+
+  // Contrat canonique consommé par engine/micro-scenes.js.
+  window.BlueFoxCustomMicroScenes = next.map(scene => JSON.parse(JSON.stringify(scene)));
+
+  return {
+    id: template.id,
+    total: next.length,
+    storageKey: CUSTOM_SCENES_STORAGE_KEY
+  };
+}
+
+window.BlueFoxCustomMicroScenes = loadSavedCustomScenes();
+
+
+const CUO_SAVES_DB = "bluefox_cuo_lab_handles_v1";
+const CUO_SAVES_STORE = "handles";
+const CUO_SAVES_KEY = "saves-directory";
+
+function openHandleDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(CUO_SAVES_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CUO_SAVES_STORE)) {
+        db.createObjectStore(CUO_SAVES_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeDirectoryHandle(handle) {
+  const db = await openHandleDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CUO_SAVES_STORE, "readwrite");
+    tx.objectStore(CUO_SAVES_STORE).put(handle, CUO_SAVES_KEY);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadDirectoryHandle() {
+  try {
+    const db = await openHandleDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(CUO_SAVES_STORE, "readonly");
+      const request = tx.objectStore(CUO_SAVES_STORE).get(CUO_SAVES_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function ensureDirectoryPermission(handle, request = false) {
+  if (!handle) return false;
+  const options = { mode: "readwrite" };
+  if ((await handle.queryPermission?.(options)) === "granted") return true;
+  if (!request) return false;
+  return (await handle.requestPermission?.(options)) === "granted";
+}
+
+async function chooseSavesDirectory() {
+  if (typeof window.showDirectoryPicker !== "function") {
+    throw new Error("Ce navigateur ne permet pas l'écriture directe dans un dossier. Utilisez Chrome ou Edge.");
+  }
+
+  const handle = await window.showDirectoryPicker({
+    id: "bluefox-cuo-lab-saves",
+    mode: "readwrite",
+    startIn: "documents"
+  });
+
+  if (!(await ensureDirectoryPermission(handle, true))) {
+    throw new Error("Permission d'écriture refusée.");
+  }
+
+  await storeDirectoryHandle(handle);
+  window.__CUO_SAVES_HANDLE__ = handle;
+  updateSaveDirectoryStatus(handle);
+  return handle;
+}
+
+function updateSaveDirectoryStatus(handle) {
+  const node = $("#save-directory-status");
+  if (!node) return;
+  if (handle) {
+    node.textContent = `Dossier saves : ${handle.name}`;
+    node.classList.add("connected");
+  } else {
+    node.textContent = "Dossier saves : non sélectionné";
+    node.classList.remove("connected");
+  }
+}
+
+async function getWritableSavesDirectory({ requestPermission = false } = {}) {
+  let handle = window.__CUO_SAVES_HANDLE__ || await loadDirectoryHandle();
+  if (handle && await ensureDirectoryPermission(handle, requestPermission)) {
+    window.__CUO_SAVES_HANDLE__ = handle;
+    updateSaveDirectoryStatus(handle);
+    return handle;
+  }
+  return null;
+}
+
+async function saveCustomSceneToDisk(template) {
+  validateCustomSceneTemplate(template);
+
+  // Filet de sécurité local avant toute écriture disque.
+  saveCustomSceneLocally(template);
+
+  let directory = await getWritableSavesDirectory({ requestPermission: true });
+  if (!directory) {
+    directory = await chooseSavesDirectory();
+  }
+
+  const filename = `${template.id}.json`;
+  const fileHandle = await directory.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+
+  try {
+    await writable.write(JSON.stringify(template, null, 2) + "\n");
+  } finally {
+    await writable.close();
+  }
+
+  return {
+    saved: true,
+    id: template.id,
+    filename,
+    directory: directory.name,
+    objects: template.objects.length
+  };
+}
+
 const dialog = $("#micro-scene-dialog");
 const nameInput = $("#micro-scene-name");
 const slug = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "") || "SANS-NOM";
@@ -694,37 +885,67 @@ $("#save-micro-scene").onclick = () => {
 $("#micro-scene-form").onsubmit = async event => {
   if (event.submitter?.value === "cancel") return;
   event.preventDefault();
+
   const list = roots.filter(root => root.userData.labOrigin === "sandbox");
   if (!list.length) {
     toast("Ajoutez au moins un objet sur le plateau test.");
     return;
   }
-  const center = list.reduce((sum, root) => sum.add(root.position), new THREE.Vector3()).multiplyScalar(1 / list.length);
+
+  const center = list
+    .reduce((sum, root) => sum.add(root.position), new THREE.Vector3())
+    .multiplyScalar(1 / list.length);
+
   const template = {
     id: `MSC-CUSTOM-${slug(nameInput.value)}`,
-    name: nameInput.value,
+    name: nameInput.value.trim(),
+    biomes: ["all"],
+    rarity: "custom",
+    radius: Math.max(
+      1,
+      ...list.map(root =>
+        Math.hypot(root.position.x - center.x, root.position.z - center.z)
+      )
+    ),
     objects: list.map(root => ({
       type: definitionOf(root).type,
-      offset: [root.position.x - center.x, root.position.y - center.y, root.position.z - center.z],
+      offset: [
+        Number((root.position.x - center.x).toFixed(4)),
+        Number((root.position.y - center.y).toFixed(4)),
+        Number((root.position.z - center.z).toFixed(4))
+      ],
       variant: root.userData.labVariant || 0,
-      rotation: [root.rotation.x, root.rotation.y, root.rotation.z]
+      rotation: [
+        Number(root.rotation.x.toFixed(6)),
+        Number(root.rotation.y.toFixed(6)),
+        Number(root.rotation.z.toFixed(6))
+      ]
     }))
   };
+
   const button = event.submitter;
   button.disabled = true;
+
   try {
-    const response = await fetch("/api/custom-micro-scenes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(template)
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Sauvegarde refusée");
+    const result = await saveCustomSceneToDisk(template);
+
     $("#micro-scene-code").textContent = result.id;
+    $("#micro-scene-summary").textContent =
+      `${template.objects.length} objet(s) · fichier : cuo-lab/saves/${result.filename}`;
+
     dialog.close();
-    toast(`${result.id} sauvegardée · ${result.total} scène(s) conservée(s).`);
+
+    toast(`Sauvegardée sur disque : saves/${result.filename}`);
+    console.info(
+      "[CUO Lab] Micro-scène écrite sur disque :",
+      result.path,
+      template
+    );
   } catch (error) {
-    toast(`Échec de sauvegarde : ${error.message}`);
+    console.error("[CUO Lab] Échec écriture disque :", error);
+    toast(
+      `Sauvegarde disque impossible — copie locale conservée : ${error.message}`
+    );
   } finally {
     button.disabled = false;
   }
@@ -782,9 +1003,19 @@ const patchInfo = [
   BF.ObjectLibraryP21?.version,
   BF.ObjectLibraryFloraPatch?.version
 ].filter(Boolean).join(" + ");
-$("#catalog-status").textContent = `${catalog.length} objets exécutables · CUO v${library.schemaVersion}${validation.valid ? " · valide" : " · ERREURS"}${patchInfo ? ` · ${patchInfo}` : ""}`;
+const savedCustomSceneCount = loadSavedCustomScenes().length;
+$("#catalog-status").textContent =
+  `${catalog.length} objets exécutables · CUO v${library.schemaVersion}` +
+  `${validation.valid ? " · valide" : " · ERREURS"}` +
+  `${patchInfo ? ` · ${patchInfo}` : ""}` +
+  `${savedCustomSceneCount ? ` · ${savedCustomSceneCount} secours local(aux)` : ""}`;
 if (!validation.valid) {
   console.error("[CUO Lab] Catalogue moteur invalide :", validation);
   toast("Attention : validation CUO moteur en erreur.");
 }
+
+getWritableSavesDirectory({ requestPermission: false }).then(handle => {
+  updateSaveDirectoryStatus(handle);
+});
+
 animate();
