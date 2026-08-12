@@ -91,6 +91,7 @@ let drag = null;
 let pointerDown = null;
 let cameraTransition = null;
 let toastTimer = null;
+let loadedMicroScene = null;
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -192,6 +193,13 @@ function disposeRoot(root) {
   scene.remove(root);
   const objectRoot = root.userData?.labObjectRoot || root;
   BF.disposeObject?.(objectRoot);
+}
+
+function clearSandbox() {
+  roots
+    .filter(root => root.userData.labOrigin === "sandbox")
+    .forEach(disposeRoot);
+  clearSelection();
 }
 
 function restoreSerialized(data) {
@@ -748,6 +756,82 @@ function saveCustomSceneLocally(template) {
   };
 }
 
+const diskCustomScenes = Array.isArray(window.BlueFoxCustomMicroScenes)
+  ? window.BlueFoxCustomMicroScenes.map(scene => JSON.parse(JSON.stringify(scene)))
+  : [];
+
+function availableMicroScenes() {
+  const byId = new Map();
+  BF.MicroScenes?.list?.().forEach(template => byId.set(template.id, template));
+  diskCustomScenes.forEach(template => byId.set(template.id, template));
+  loadSavedCustomScenes().forEach(template => byId.set(template.id, template));
+  return [...byId.values()].sort((a, b) =>
+    String(a.name || a.id).localeCompare(String(b.name || b.id), "fr")
+  );
+}
+
+function renderMicroSceneSelector(preferredId = "") {
+  const select = $("#micro-scene-select");
+  const templates = availableMicroScenes();
+  select.replaceChildren(
+    new Option("Choisir…", ""),
+    ...templates.map(template => new Option(
+      `${template.name || template.id} · ${template.objects.length} objet(s)`,
+      template.id
+    ))
+  );
+  if (preferredId && templates.some(template => template.id === preferredId)) {
+    select.value = preferredId;
+  }
+  $("#load-micro-scene").disabled = !select.value;
+}
+
+function preloadMicroScene(template) {
+  if (!template?.objects?.length) throw new Error("Micro-scène vide ou inconnue.");
+  const unknown = template.objects.find(entry => !library.exists(entry.type));
+  if (unknown) throw new Error(`Objet CUO inconnu dans la scène : ${unknown.type}`);
+
+  clearSandbox();
+  history.length = 0;
+  $("#undo-action").disabled = true;
+  const origin = new THREE.Vector3(CENTERS.sandbox, PLATFORM.y, 0);
+  const created = template.objects.map(entry => {
+    const offset = Array.isArray(entry.offset) ? entry.offset : [0, 0, 0];
+    return create(
+      entry.type,
+      origin.clone().add(new THREE.Vector3(...offset)),
+      "sandbox",
+      Math.max(0, Number(entry.variant) || 0),
+      {
+        keepY: true,
+        rotation: Array.isArray(entry.rotation) ? entry.rotation : [0, 0, 0]
+      }
+    );
+  });
+
+  loadedMicroScene = { id: template.id, name: template.name || template.id };
+  nameInput.value = `${loadedMicroScene.name} copie`;
+  nameInput.dispatchEvent(new Event("input"));
+  created.forEach(root => selectRoot(root, true));
+  focus(created);
+  toast(`${loadedMicroScene.name} préchargée · ${created.length} objet(s).`);
+}
+
+$("#micro-scene-select").onchange = event => {
+  $("#load-micro-scene").disabled = !event.target.value;
+};
+
+$("#load-micro-scene").onclick = () => {
+  const id = $("#micro-scene-select").value;
+  const template = availableMicroScenes().find(scene => scene.id === id);
+  try {
+    preloadMicroScene(template);
+  } catch (error) {
+    console.error("[CUO Lab] Préchargement impossible :", error);
+    toast(`Préchargement impossible : ${error.message}`);
+  }
+};
+
 window.BlueFoxCustomMicroScenes = loadSavedCustomScenes();
 
 
@@ -879,6 +963,10 @@ const nameInput = $("#micro-scene-name");
 const slug = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "") || "SANS-NOM";
 nameInput.oninput = () => $("#micro-scene-code").textContent = `MSC-CUSTOM-${slug(nameInput.value)}`;
 $("#save-micro-scene").onclick = () => {
+  if (loadedMicroScene && !nameInput.value.trim()) {
+    nameInput.value = `${loadedMicroScene.name} copie`;
+    nameInput.dispatchEvent(new Event("input"));
+  }
   dialog.showModal();
   nameInput.focus();
 };
@@ -923,6 +1011,13 @@ $("#micro-scene-form").onsubmit = async event => {
     }))
   };
 
+  const existingIds = new Set(availableMicroScenes().map(scene => scene.id));
+  if (template.id === loadedMicroScene?.id || existingIds.has(template.id)) {
+    toast("Choisissez un nouveau nom : la micro-scène source ne sera pas écrasée.");
+    nameInput.focus();
+    return;
+  }
+
   const button = event.submitter;
   button.disabled = true;
 
@@ -934,6 +1029,8 @@ $("#micro-scene-form").onsubmit = async event => {
       `${template.objects.length} objet(s) · fichier : cuo-lab/saves/${result.filename}`;
 
     dialog.close();
+    loadedMicroScene = { id: template.id, name: template.name };
+    renderMicroSceneSelector(template.id);
 
     toast(`Sauvegardée sur disque : saves/${result.filename}`);
     console.info(
@@ -997,6 +1094,7 @@ const category = $("#category-filter");
 ["#name-filter", "#category-filter", "#size-filter"].forEach(selector => $(selector).oninput = renderCatalog);
 
 renderCatalog();
+renderMicroSceneSelector();
 populate();
 canvas.classList.add("move-mode");
 const patchInfo = [
