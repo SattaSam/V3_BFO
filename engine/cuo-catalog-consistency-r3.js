@@ -1,0 +1,1 @@
+(function(global){"use strict";const BF=global.BlueFox3D=global.BlueFox3D||{};BF.CUOCatalogConsistency=Object.freeze({version:"cuo-catalog-r3",source:"engine/ObjectLibrary",floraPatchExpected:true,validatedTypes:Object.freeze(["lantern_mushrooms","fern","lunar_vine"])});})(window);
