@@ -2127,6 +2127,9 @@
           detail: {
             fromMapId: previousMapId,
             mapId: this.currentMapId,
+            toMapId: this.currentMapId,
+            direction: exit.direction || null,
+            biome: BF.maps[this.currentMapId]?.biome || null,
             isNew,
             count: this.completedTransitions
           }

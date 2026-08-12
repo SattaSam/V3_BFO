@@ -45,6 +45,8 @@
       this.lastActivationAttempt = null;
       this.boundMissionState = (event) =>
         this.onMissionState(event.detail || BF.getMissionState?.() || {});
+      this.boundMapTransition = (event) =>
+        this.onMapTransition(event.detail || {});
     }
 
     defaultState() {
@@ -374,6 +376,12 @@
       return Number(this.state.triggerCounts[key]) || 0;
     }
 
+    prerequisitesSatisfied(mission) {
+      return asArray(mission?.prerequisites).every((missionId) =>
+        this.missionLifecycle(missionId).completed
+      );
+    }
+
     emitNarrative(mission, moment, context = {}) {
       const lines = mission?.narrative?.[moment] || [];
       if (!lines.length) return false;
@@ -461,6 +469,7 @@
           manager.startMission(mission.id, {
             primary: false,
             autoPrimaryEligible: false,
+            prerequisites: asArray(mission.prerequisites),
             source: "bible-runtime-v0.1",
             reason: `Déclencheur Bible V0.1 : ${event.type || "event"}`
           }) === true;
@@ -520,7 +529,9 @@
       }
     }
 
-    consumeTriggerEvent(event) {
+    consumeTriggerEvent(event, options = {}) {
+      const candidates = [];
+
       for (const mission of this.catalog) {
         if (!this.eventMatchesTrigger(mission.trigger, event)) continue;
 
@@ -530,13 +541,34 @@
 
         if (lifecycleState.active) continue;
 
+        // Un événement géographique ne prépare pas silencieusement une mission
+        // dont l'arc précédent n'est pas terminé.
+        if (!this.prerequisitesSatisfied(mission)) continue;
+
         const count = this.incrementTrigger(mission, event);
         const required = Math.max(1, Number(mission.trigger?.count) || 1);
 
         if (count >= required) {
-          this.activateMission(mission, event);
+          candidates.push(mission);
         }
       }
+
+      candidates.sort((left, right) =>
+        (Number(right.priority) || 0) - (Number(left.priority) || 0) ||
+        this.catalog.indexOf(left) - this.catalog.indexOf(right)
+      );
+
+      const selected = options.allowActivation === false
+        ? null
+        : candidates[0] || null;
+      const activatedMissionId = selected && this.activateMission(selected, event)
+        ? selected.id
+        : null;
+
+      return {
+        matched: candidates.length,
+        activatedMissionId
+      };
     }
 
     onObjectEvent(rawEvent) {
@@ -549,25 +581,19 @@
       );
 
       // 1) Evénement concret : collect/analyze/observe/etc.
-      this.consumeTriggerEvent(normalized);
+      let result = this.consumeTriggerEvent(normalized);
+      let allowActivation = !result.activatedMissionId;
 
       // 2) Evénement narratif générique : toute interaction réelle avec
       // l'objet. Il est volontairement indépendant de l'état "connu" CUO.
       // Cela permet à une mission ajoutée plus tard de se révéler même si
       // BlueFox a déjà observé/analysé/collecté ce type d'objet auparavant.
-      this.consumeTriggerEvent({
+      result = this.consumeTriggerEvent({
         ...normalized,
         type: "interaction.any",
         amount: 1
-      });
-
-      const activatedNow = this.catalog.some((mission) =>
-        !activeBefore.has(mission.id) && this.missionLifecycle(mission.id).active
-      );
-      if (activatedNow && rawEvent.id) {
-        this.activationEventIds.add(rawEvent.id);
-        global.setTimeout?.(() => this.activationEventIds.delete(rawEvent.id), 0);
-      }
+      }, { allowActivation });
+      allowActivation = allowActivation && !result.activatedMissionId;
 
       // 3) Première interaction d'étude : conservée comme vocabulaire
       // distinct pour les missions qui exigent explicitement une découverte.
@@ -580,10 +606,41 @@
           ...normalized,
           type: "interaction.discovery",
           amount: 1
-        });
+        }, { allowActivation });
+      }
+
+      const activatedNow = this.catalog.some((mission) =>
+        !activeBefore.has(mission.id) && this.missionLifecycle(mission.id).active
+      );
+      if (activatedNow && rawEvent.id) {
+        this.activationEventIds.add(rawEvent.id);
+        global.setTimeout?.(() => this.activationEventIds.delete(rawEvent.id), 0);
       }
 
       this.bridgeMissionProgress(rawEvent);
+    }
+
+    onMapTransition(detail) {
+      const event = {
+        fromMapId: detail.fromMapId || null,
+        toMapId: detail.toMapId || detail.mapId || null,
+        mapId: detail.toMapId || detail.mapId || null,
+        direction: lower(detail.direction) || null,
+        biome: lower(detail.biome) || null,
+        amount: 1
+      };
+
+      const crossing = this.consumeTriggerEvent({
+        ...event,
+        type: "movement.portal_crossed"
+      });
+
+      if (detail.isNew === true) {
+        this.consumeTriggerEvent({
+          ...event,
+          type: "exploration.map_discovered"
+        }, { allowActivation: !crossing.activatedMissionId });
+      }
     }
 
     isActivationEvent(eventId) {
@@ -980,6 +1037,14 @@
       global.addEventListener?.(
         "bluefox:mission-state",
         this.boundMissionState
+      );
+      global.removeEventListener?.(
+        "bluefox:map-transition-completed",
+        this.boundMapTransition
+      );
+      global.addEventListener?.(
+        "bluefox:map-transition-completed",
+        this.boundMapTransition
       );
       return Boolean(this.unsubscribeObjectEvents);
     }
