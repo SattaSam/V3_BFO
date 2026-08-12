@@ -1,110 +1,44 @@
-(function (global) {
-  "use strict";
-
-  const BF = global.BlueFox3D = global.BlueFox3D || {};
-  if (BF.CustomMicroScenesRuntime?.version === "MSC-SAVES-r1") return;
-
-  const FILES = Object.freeze(["MSC-CUSTOM-ASTROLOGY.json", "MSC-CUSTOM-BASE-DRONE-FONCTIONEL.json", "MSC-CUSTOM-CACTUS-ORE.json", "MSC-CUSTOM-CARRIERE.json", "MSC-CUSTOM-CARRIEREDECRISTAUX.json", "MSC-CUSTOM-CARRIEREDECRISTAUX1.json", "MSC-CUSTOM-COMP-HIDDEN.json", "MSC-CUSTOM-COMPOSANT-RUIN.json", "MSC-CUSTOM-EPAVE-1DRONE.json", "MSC-CUSTOM-EPAVE-MAJEUR.json", "MSC-CUSTOM-ETABLI.json", "MSC-CUSTOM-FOYER-ANCIEN.json", "MSC-CUSTOM-FUNA-PARENTAL.json", "MSC-CUSTOM-HABITAT-RUINE.json", "MSC-CUSTOM-HAUTEL-STELL-RELIC-COMP.json", "MSC-CUSTOM-HAUTEUR.json", "MSC-CUSTOM-ILES-SUSPENDUES2.json", "MSC-CUSTOM-MACHINE-ABANDONNEE.json", "MSC-CUSTOM-NID-DE-FAUNE5.json", "MSC-CUSTOM-NID-PROTECTEUR.json", "MSC-CUSTOM-RUINE-MODULAIRE1.json", "MSC-CUSTOM-RUINE-MODULAIRE2.json", "MSC-CUSTOM-RUINE-MODULAIRE4.json", "MSC-CUSTOM-SANCTUAIRE-BIG.json", "MSC-CUSTOM-SANCTUAIRE-OCHIDEE-BASSIN.json", "MSC-CUSTOM-SANCTUAIRE-OCHIDEE-NATURAL.json", "MSC-CUSTOM-SANCTUAIRE-OCHIDEE-RIVER-STELLE.json", "MSC-CUSTOM-SANCTUAIRE-RING.json", "MSC-CUSTOM-WALL-RUIN-COLLAPSED.json", "MSC-CUSTOM-WALL-RUIN-STRAIGHT.json", "MSC-CUSTOM-WORKED-STONE-BLOCK.json"]);
-  const scriptUrl = global.document?.currentScript?.src || global.location?.href || "";
-  const baseUrl = new URL("../assets/MSC_saves/", scriptUrl);
-
-  const deepFreeze = (value) => {
-    if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-    Object.values(value).forEach(deepFreeze);
-    return Object.freeze(value);
-  };
-
-  const loadScene = (filename) => {
-    const url = new URL(filename, baseUrl).href;
-    try {
-      // Chargement déterministe avant l'utilisation de MicroScenes par le moteur.
-      // Le jeu est lancé via le serveur local BlueFox ; le protocole file:// est déjà
-      // explicitement non supporté par le projet.
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", url, false);
-      xhr.send(null);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const parsed = JSON.parse(xhr.responseText);
-        if (!parsed?.id || !Array.isArray(parsed.objects)) {
-          throw new Error("définition incomplète");
-        }
-        return deepFreeze(parsed);
-      }
-      throw new Error(`HTTP ${xhr.status}`);
-    } catch (error) {
-      console.error(`[BlueFox CUSTOM MSC] ${filename} non chargée`, error);
-      return null;
-    }
-  };
-
-  const imported = FILES.map(loadScene).filter(Boolean);
-  const importedById = new Map(imported.map((scene) => [scene.id, scene]));
-
-  const legacy = (() => {
-    const current = BF.CustomMicroScenes;
-    if (Array.isArray(current)) return current;
-    if (current && typeof current === "object") return Object.values(current);
-    return [];
-  })();
-
-  const mergedCustom = new Map();
-  legacy.forEach((scene) => { if (scene?.id) mergedCustom.set(scene.id, scene); });
-  imported.forEach((scene) => mergedCustom.set(scene.id, scene)); // sauvegarde = version la plus récente
-  BF.CustomMicroScenes = Object.freeze([...mergedCustom.values()]);
-
-  const original = BF.MicroScenes;
-  if (!original?.list || !original?.get) {
-    console.error("[BlueFox CUSTOM MSC] MicroScenes doit être chargé avant custom-micro-scenes-runtime.js");
-    return;
-  }
-
-  const data = { ...(original.data || {}) };
-  imported.forEach((scene) => { data[scene.id] = scene; });
-  const frozenData = Object.freeze(data);
-
-  const get = (id) =>
-    frozenData[id] ||
-    Object.values(frozenData).find((scene) => scene?.id === id || scene?.name === id) ||
-    null;
-
-  const list = (biome) =>
-    Object.values(frozenData).filter((scene) =>
-      !biome ||
-      scene?.biomes?.includes?.("all") ||
-      scene?.biomes?.includes?.(biome)
-    );
-
-  BF.MicroScenes = Object.freeze({
-    ...original,
-    data: frozenData,
-    get,
-    list
-  });
-
-  const ensureOption = (select, scene) => {
-    if (!select || !scene?.id) return;
-    if ([...select.options].some((option) => option.value === scene.id)) return;
-    const label = `${scene.name || scene.id} · ${scene.objects?.length || 0} objets`;
-    select.add(new Option(label, scene.id));
-  };
-
-  // Les deux laboratoires ont déjà construit leur DOM lorsque ce script est chargé.
-  imported.forEach((scene) => {
-    ensureOption(global.document?.querySelector?.("#micro-scene-catalog"), scene);
-    ensureOption(global.document?.querySelector?.("#micro-scene-select"), scene);
-  });
-
-  const report = Object.freeze({
-    version: "MSC-SAVES-r1",
-    expected: FILES.length,
-    loaded: imported.length,
-    failed: Object.freeze(FILES.filter((name) =>
-      !importedById.has(name.replace(/\.json$/i, ""))
-    )),
-    sceneIds: Object.freeze(imported.map((scene) => scene.id))
-  });
-
-  BF.CustomMicroScenesRuntime = report;
-  global.dispatchEvent?.(new CustomEvent("bluefox:custom-micro-scenes-ready", { detail: report }));
-  console.info(`[BlueFox CUSTOM MSC] ${report.loaded}/${report.expected} scènes MSC_saves raccordées au catalogue moteur.`);
+(function(global){
+"use strict";
+const BF=global.BlueFox3D=global.BlueFox3D||{};
+const VERSION="MSC-SAVES-r6";
+if(BF.CustomMicroScenesRuntime?.version===VERSION)return;
+const MANIFEST=Object.freeze([{"file":"MSC-CUSTOM-ASTROLOGY.json","id":"MSC-CUSTOM-ASTROLOGY","name":"Astrology","objects":20,"sha256":"295d4ce4616ee296e3263e5bca0b5c0264a15da111861ee6c3406462e9738c60"},{"file":"MSC-CUSTOM-BASALT-RIFT.json","id":"MSC-CUSTOM-BASALT-RIFT","name":"Basalt_Rift","objects":50,"sha256":"8b1fa52847c476809d2cc47124446d4308a97d705ac6b561b8354149c3778e97"},{"file":"MSC-CUSTOM-BASE-DRONE-FONCTIONEL.json","id":"MSC-CUSTOM-BASE-DRONE-FONCTIONEL","name":"Base_Drone_fonctionel","objects":14,"sha256":"37bac6033fde10a6aaddb307fd61356b6e11a527169c07be659e87a226ceec66"},{"file":"MSC-CUSTOM-CACTUS-ORE.json","id":"MSC-CUSTOM-CACTUS-ORE","name":"Cactus_Ore","objects":19,"sha256":"c684cd758167a3518179c71427360716ef6c15cdcbae6a94c1a0ccaed83181be"},{"file":"MSC-CUSTOM-CARRIERE.json","id":"MSC-CUSTOM-CARRIERE","name":"carriere","objects":59,"sha256":"d859841e2c69183f5015b6661638cfde8bba46b31c436c5fb47e85b49de2d986"},{"file":"MSC-CUSTOM-CARRIEREDECRISTAUX.json","id":"MSC-CUSTOM-CARRIEREDECRISTAUX","name":"Carrieredecristaux","objects":7,"sha256":"e030202bd194f4ccdcd330b83634c18ebdaddd5471e45597156502c1fa89c1cc"},{"file":"MSC-CUSTOM-CARRIEREDECRISTAUX1.json","id":"MSC-CUSTOM-CARRIEREDECRISTAUX1","name":"Carrieredecristaux1","objects":57,"sha256":"9ec292dc3a3eebd5b712231351b2b238898f9c5907287eed9b01d4dc42e286a3"},{"file":"MSC-CUSTOM-COMP-HIDDEN.json","id":"MSC-CUSTOM-COMP-HIDDEN","name":"Comp_hidden","objects":21,"sha256":"b674aed4eacdcff5096e42ae627b21c18802c887e2d32f3d39e2df1adddf2779"},{"file":"MSC-CUSTOM-COMPOSANT-RUIN.json","id":"MSC-CUSTOM-COMPOSANT-RUIN","name":"Composant_ruin","objects":57,"sha256":"b5c51749c85afda1113dfaa73c7b189bfcf49d1ab4f8665d31c7d41bf8ad54ee"},{"file":"MSC-CUSTOM-EPAVE-1DRONE.json","id":"MSC-CUSTOM-EPAVE-1DRONE","name":"EPAVE_1Drone","objects":52,"sha256":"634591a5bac98353b6be945dd95a16fa7328bc785083244063e4c299a88e3f16"},{"file":"MSC-CUSTOM-EPAVE-MAJEUR.json","id":"MSC-CUSTOM-EPAVE-MAJEUR","name":"EPAVE_Majeur","objects":63,"sha256":"a5ae43767cece548ea7b1fafa36ace669313e02d710a9457b66e89155abc2800"},{"file":"MSC-CUSTOM-ETABLI.json","id":"MSC-CUSTOM-ETABLI","name":"ETABLI","objects":11,"sha256":"7e5c9bfca54f7ddfe176a84c19b85a74492c83967fb9c843cdf8a7a1c9a1981c"},{"file":"MSC-CUSTOM-FOYER-ANCIEN.json","id":"MSC-CUSTOM-FOYER-ANCIEN","name":"Foyer_ancien","objects":12,"sha256":"39ceb19180800b2a31b05759d15f21050946832b43b50f3ef0c164f1a6cddc66"},{"file":"MSC-CUSTOM-FUNA-PARENTAL.json","id":"MSC-CUSTOM-FUNA-PARENTAL","name":"FUNA_Parental","objects":51,"sha256":"c4bee5a8dc495951e84ecd98a49228bdd480cfce8967b3833c2f1e7bd2361a3c"},{"file":"MSC-CUSTOM-HABITAT-RUINE.json","id":"MSC-CUSTOM-HABITAT-RUINE","name":"Habitat_ruine","objects":43,"sha256":"3c678b0c5949d449496d3a309a0d0455b73882b90394c9b7da06b0667ed44f43"},{"file":"MSC-CUSTOM-HAUTEL-STELL-RELIC-COMP.json","id":"MSC-CUSTOM-HAUTEL-STELL-RELIC-COMP","name":"HAUTEL_Stell_relic_comp","objects":19,"sha256":"23ebd2a1ca1e887fd68b052aa14b3daa877a20fccd2bc81bd96605c71a9ecc9e"},{"file":"MSC-CUSTOM-HAUTEUR.json","id":"MSC-CUSTOM-HAUTEUR","name":"HAUTEUR","objects":6,"sha256":"0b0209a28cf2e4965e13289cea35dd4a7f0dbf786b0f49c83cc1f7d48b667193"},{"file":"MSC-CUSTOM-ILES-SUSPENDUES2.json","id":"MSC-CUSTOM-ILES-SUSPENDUES2","name":"Iles_suspendues2","objects":38,"sha256":"9f23d6451e40460f3f892f86664237cefcedc4a0a76f6861a6128e9701278dfa"},{"file":"MSC-CUSTOM-MACHINE-ABANDONNEE.json","id":"MSC-CUSTOM-MACHINE-ABANDONNEE","name":"Machine_abandonnee","objects":17,"sha256":"078c148cec0f7596642fcf26ecf667af7bc2b452da7e1e64a4c5e531eef7f837"},{"file":"MSC-CUSTOM-NID-DE-FAUNE5.json","id":"MSC-CUSTOM-NID-DE-FAUNE5","name":"Nid_de_faune5","objects":11,"sha256":"a22f11fda0a225194a6f8c69d31257aa8c6fef71fd8ec6d6f5d7f14fe46f800c"},{"file":"MSC-CUSTOM-NID-PROTECTEUR.json","id":"MSC-CUSTOM-NID-PROTECTEUR","name":"Nid_protecteur","objects":7,"sha256":"648f23e66a869cfa23963d35f2cc6941ab6b578b1a4ef827f15e949f9d4594c1"},{"file":"MSC-CUSTOM-RUINE-MODULAIRE1.json","id":"MSC-CUSTOM-RUINE-MODULAIRE1","name":"Ruine_modulaire1","objects":8,"sha256":"fc873027f46624a1ce7315c21d2d42272d82a71b8c70a9c8d71451705726a73c"},{"file":"MSC-CUSTOM-RUINE-MODULAIRE2.json","id":"MSC-CUSTOM-RUINE-MODULAIRE2","name":"Ruine_modulaire2","objects":20,"sha256":"96defc6ece960ec9044bdd68137fff5df260359ccc18b46c3a641e05dddc0dd3"},{"file":"MSC-CUSTOM-RUINE-MODULAIRE4.json","id":"MSC-CUSTOM-RUINE-MODULAIRE4","name":"Ruine_modulaire4","objects":35,"sha256":"22297ded462ffb3f1d43cc941ee5d173af78da58ac326a4e70c4f8c6f8836ce6"},{"file":"MSC-CUSTOM-SANCTUAIRE-BIG.json","id":"MSC-CUSTOM-SANCTUAIRE-BIG","name":"Sanctuaire_big","objects":68,"sha256":"eba19e0e8232131678997b9f9a5b6e67abf0a601f54f3e92b2901f8208cd6719"},{"file":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-BASSIN.json","id":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-BASSIN","name":"Sanctuaire_Ochidee_bassin","objects":88,"sha256":"ae65c16516e337012fa07934083516ea73569e33335d04fbbeb1a13b94392e85"},{"file":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-NATURAL.json","id":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-NATURAL","name":"Sanctuaire_Ochidee_natural","objects":70,"sha256":"f91c8126848f39d4d1132d7fe583309b8fa3f427164919270389c210ec3890f0"},{"file":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-RIVER-STELLE.json","id":"MSC-CUSTOM-SANCTUAIRE-OCHIDEE-RIVER-STELLE","name":"Sanctuaire_Ochidee_river_stelle","objects":78,"sha256":"92735d5260c0904e5edca7ae3e0eeae41a81326df2e8326102fe62cf27b9464e"},{"file":"MSC-CUSTOM-SANCTUAIRE-RING.json","id":"MSC-CUSTOM-SANCTUAIRE-RING","name":"Sanctuaire_ring","objects":59,"sha256":"216804cd4d3422f56dfe8a8a51fcf8a8480e76ff5128009494b7f943d7cda94e"},{"file":"MSC-CUSTOM-WALL-RUIN-COLLAPSED.json","id":"MSC-CUSTOM-WALL-RUIN-COLLAPSED","name":"wall_ruin_collapsed","objects":12,"sha256":"dcbb6ee254614c5839fdf9b52333207c2328f74ac59c2db9bc4fdd977696085e"},{"file":"MSC-CUSTOM-WALL-RUIN-STRAIGHT.json","id":"MSC-CUSTOM-WALL-RUIN-STRAIGHT","name":"wall_ruin_straight","objects":13,"sha256":"c1233aa3f65866ef9ed56b4a56ea286812b3d8a2b2df8a2a1eb2a548fcc4465e"},{"file":"MSC-CUSTOM-WORKED-STONE-BLOCK.json","id":"MSC-CUSTOM-WORKED-STONE-BLOCK","name":"worked_stone_block","objects":12,"sha256":"a13f07cf4837bebb171365725627cd0394c606ad534f97aa447a280a9aff3360"}]);
+const Y=Object.freeze({"MSC-CUSTOM-CARRIEREDECRISTAUX":0.75,"MSC-CUSTOM-CARRIEREDECRISTAUX1":0.75,"MSC-CUSTOM-ASTROLOGY":1.25,"MSC-CUSTOM-EPAVE-MAJEUR":0.25,"MSC-CUSTOM-HAUTEL-STELL-RELIC-COMP":0.25,"MSC-CUSTOM-ILES-SUSPENDUES2":3.0,"MSC-CUSTOM-RUINE-MODULAIRE2":0.25,"MSC-CUSTOM-RUINE-MODULAIRE4":0.75});
+const baseUrl=new URL("../assets/MSC_saves/",global.document?.currentScript?.src||global.location.href);
+const triple=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(Number(n)));
+function load(item){
+ try{
+  const x=new XMLHttpRequest();x.open("GET",new URL(item.file,baseUrl).href,false);x.send(null);
+  if(x.status<200||x.status>=300)return{item,error:`HTTP ${x.status}`};
+  const s=JSON.parse(x.responseText),err=[];
+  if(s.id!==item.id)err.push(`id ${s.id}`);
+  if(!Array.isArray(s.objects)||s.objects.length!==item.objects)err.push(`objets ${s.objects?.length||0}/${item.objects}`);
+  (s.objects||[]).forEach((e,i)=>{if(!BF.ObjectLibrary?.exists?.(e.type))err.push(`#${i+1} type CUO absent ${e.type}`);if(!triple(e.offset))err.push(`#${i+1} offset`);if(!triple(e.rotation))err.push(`#${i+1} rotation`);});
+  return err.length?{item,error:err.join("; ")}:{item,scene:s};
+ }catch(e){return{item,error:e.message};}
+}
+function masterScene(s){
+ const lift=Number(Y[s.id])||0;
+ return Object.freeze({...s,custom:true,masterR6:true,transformMode:"pivot",sceneYOffset:lift,
+  objects:Object.freeze(s.objects.map(e=>Object.freeze({...e,
+   offset:Object.freeze([Number(e.offset[0])||0,(Number(e.offset[1])||0)+lift,Number(e.offset[2])||0]),
+   rotation:Object.freeze([Number(e.rotation[0])||0,Number(e.rotation[1])||0,Number(e.rotation[2])||0]),
+   variant:Math.max(0,Number(e.variant)||0)
+  })))
+ });
+}
+const results=MANIFEST.map(load),loaded=results.filter(r=>r.scene).map(r=>masterScene(r.scene)),failed=results.filter(r=>r.error);
+const original=BF.MicroScenes;if(!original?.data){console.error("[MSC R6] MicroScenes absent");return;}
+const data={...original.data};
+const masterIds=new Set(loaded.map(s=>s.id));
+Object.keys(data).forEach(k=>{if(masterIds.has(data[k]?.id))delete data[k];});
+loaded.forEach(s=>{data[`custom_${s.id.toLowerCase().replace(/[^a-z0-9]+/g,"_")}`]=s;});
+const unique=()=>{const by=new Map();Object.values(data).forEach(s=>{if(s?.id)by.set(s.id,s);});return[...by.values()].sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id),"fr",{sensitivity:"base"})||String(a.id).localeCompare(String(b.id),"fr"));};
+const get=q=>data[q]||unique().find(s=>s.id===q||s.name===q)||null;
+BF.MicroScenes=Object.freeze({...original,data:Object.freeze(data),get,list(biome){return unique().filter(s=>!biome||s.biomes?.includes?.("all")||s.biomes?.includes?.(biome));}});
+BF.CustomMicroScenes=Object.freeze(loaded);global.BlueFoxCustomMicroScenes=BF.CustomMicroScenes;
+BF.CustomMicroScenesRuntime=Object.freeze({version:VERSION,expected:MANIFEST.length,loaded:loaded.length,failed:Object.freeze(failed.map(r=>({id:r.item.id,error:r.error}))),objects:loaded.reduce((n,s)=>n+s.objects.length,0)});
+if(failed.length)console.error("[MSC R6] Masters non chargés",BF.CustomMicroScenesRuntime);else console.info("[MSC R6] 32/32 masters chargés.");
+global.dispatchEvent?.(new CustomEvent("bluefox:custom-micro-scenes-ready",{detail:BF.CustomMicroScenesRuntime}));
 })(window);

@@ -1,0 +1,711 @@
+{
+  "id": "MSC-CUSTOM-BASALT-RIFT",
+  "name": "Basalt_Rift",
+  "biomes": [
+    "all"
+  ],
+  "rarity": "custom",
+  "radius": 20.883774641327587,
+  "objects": [
+    {
+      "type": "large_rock",
+      "offset": [
+        -1.0324,
+        -0.9212,
+        5.735
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        11.1819,
+        -1.1362,
+        3.6945
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0.523599,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        -14.1748,
+        0.8638,
+        8.4985
+      ],
+      "variant": 0,
+      "rotation": [
+        2.094395,
+        -2.617994,
+        -0.261799
+      ]
+    },
+    {
+      "type": "strong_rock",
+      "offset": [
+        1.2267,
+        -0.4061,
+        3.024
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        -2.0225,
+        -0.1712,
+        -6.0045
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        3.403392,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        -5.1122,
+        -0.1712,
+        -3.3797
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        1.570796,
+        0
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        0.8151,
+        0.2745,
+        -6.0409
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0.261799,
+        -0.261799
+      ]
+    },
+    {
+      "type": "strong_rock",
+      "offset": [
+        2.3411,
+        -0.4061,
+        -5.0327
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "strong_rock",
+      "offset": [
+        11.7694,
+        -0.5718,
+        -6.4181
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        -2.879793,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        4.4601,
+        -1.3862,
+        -7.8081
+      ],
+      "variant": 0,
+      "rotation": [
+        0.523599,
+        -4.18879,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -19.7992,
+        0.2825,
+        6.6427
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -6.9073,
+        0.2823,
+        4.3775
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -3.5139,
+        0.2841,
+        5.0182
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        5.5544,
+        0.2841,
+        3.0405
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        15.86,
+        0.2823,
+        -0.1893
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        2.1023,
+        0.2825,
+        5.4368
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        8.1634,
+        0.2841,
+        6.2444
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -11.216,
+        0.2823,
+        10.7955
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        5.6211,
+        0.2825,
+        -9.3109
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -4.9213,
+        0.2841,
+        -7.0715
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        -8.3528,
+        -0.2255,
+        -0.372
+      ],
+      "variant": 1,
+      "rotation": [
+        0.261799,
+        -3.403392,
+        0
+      ]
+    },
+    {
+      "type": "large_rock",
+      "offset": [
+        -9.424,
+        -0.0912,
+        6.8032
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0.523599,
+        0
+      ]
+    },
+    {
+      "type": "needle",
+      "offset": [
+        -9.0175,
+        0.2841,
+        -3.811
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "crystal",
+      "offset": [
+        -14.2915,
+        0.5769,
+        -2.2129
+      ],
+      "variant": 2,
+      "rotation": [
+        0.785398,
+        0.261799,
+        0
+      ]
+    },
+    {
+      "type": "crystal",
+      "offset": [
+        -16.6003,
+        -0.1941,
+        6.5003
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "crystal",
+      "offset": [
+        15.1601,
+        -0.2151,
+        -8.2685
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "crystal",
+      "offset": [
+        17.2648,
+        -0.1731,
+        -0.456
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "energy_crystal",
+      "offset": [
+        3.0362,
+        0.3762,
+        2.4179
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "energy_crystal",
+      "offset": [
+        3.9324,
+        0.1262,
+        -6.4232
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        -1.570796,
+        -0.261799
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        7.9665,
+        -0.2255,
+        -5.9564
+      ],
+      "variant": 1,
+      "rotation": [
+        3.403392,
+        -3.141593,
+        3.141593
+      ]
+    },
+    {
+      "type": "energy_crystal",
+      "offset": [
+        -4.3977,
+        1.6262,
+        -1.9052
+      ],
+      "variant": 1,
+      "rotation": [
+        0.785398,
+        -0.261799,
+        0
+      ]
+    },
+    {
+      "type": "energy_crystal",
+      "offset": [
+        -8.311,
+        0.8762,
+        4.6833
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        -3.665191,
+        -1.047198
+      ]
+    },
+    {
+      "type": "strong_rock",
+      "offset": [
+        -14.4268,
+        0.1782,
+        -3.1025
+      ],
+      "variant": 2,
+      "rotation": [
+        -1.570796,
+        0,
+        -2.879793
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        -11.9754,
+        0.2149,
+        -0.293
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        -2.5728,
+        -0.2851,
+        4.7745
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        1.832596,
+        0
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        -12.0368,
+        -0.2255,
+        5.4168
+      ],
+      "variant": 1,
+      "rotation": [
+        2.879793,
+        -0.261799,
+        3.141593
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        -3.1571,
+        -0.1031,
+        -2.0582
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0.785398,
+        0.261799
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        -4.3066,
+        0.0245,
+        6.9011
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0.261799,
+        -0.261799
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        5.03,
+        -0.0691,
+        1.7012
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        0.523599,
+        0
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        4.0613,
+        -0.1031,
+        -5.213
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        5.1813,
+        -0.2255,
+        4.404
+      ],
+      "variant": 1,
+      "rotation": [
+        0.261799,
+        -3.403392,
+        0
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        5.8501,
+        -0.3531,
+        -5.0536
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        -1.308997,
+        0
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        8.9342,
+        -0.2851,
+        0.7861
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        13.6428,
+        -0.3191,
+        -1.1907
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        1.308997,
+        -0.261799
+      ]
+    },
+    {
+      "type": "resonant_basalt",
+      "offset": [
+        8.7092,
+        -0.3191,
+        -5.1069
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        -1.047198,
+        0
+      ]
+    },
+    {
+      "type": "metallic_dune",
+      "offset": [
+        13.3059,
+        -0.2255,
+        -0.4455
+      ],
+      "variant": 1,
+      "rotation": [
+        2.879793,
+        -0.261799,
+        3.141593
+      ]
+    },
+    {
+      "type": "magnetic_ore",
+      "offset": [
+        -1.1258,
+        0.2014,
+        3.3266
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "magnetic_ore",
+      "offset": [
+        -13.4166,
+        0.2014,
+        -0.9756
+      ],
+      "variant": 1,
+      "rotation": [
+        0,
+        -0.785398,
+        0
+      ]
+    },
+    {
+      "type": "magnetic_ore",
+      "offset": [
+        13.9543,
+        0.2014,
+        -7.1637
+      ],
+      "variant": 0,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "magnetic_ore",
+      "offset": [
+        6.9875,
+        -0.0486,
+        1.0413
+      ],
+      "variant": 2,
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
