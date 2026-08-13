@@ -2,8 +2,9 @@
 "use strict";
 const BF=global.BlueFox3D=global.BlueFox3D||{},music=BF.music,cat=BF.MusicCatalogV1||global.BlueFoxMusicCatalogV1;
 if(!music||!cat){console.warn("[BlueFox Music Bridge] moteur musical absent");return;}
-const VERSION="1.1.5",leases=new Map(),listeners=[],objectTimes=[];
-let current=null,timer=null,lastMission=null,lastReason="initialization",lastSignalKey=null;
+const VERSION="1.2.0",leases=new Map(),listeners=[],objectTimes=[],activityHistory=[];
+const ACTIVITY_WINDOW_MS=5*60*1000,STREAK_REQUIRED=3,DOMINANCE_MIN_ACTIONS=6,DOMINANCE_SHARE=.5,DOMINANCE_LEASE_MS=150000;
+let current=null,timer=null,lastMission=null,lastReason="initialization",lastSignalKey=null,currentMapId=null,lastActivity=null;
 const now=()=>Date.now(),lower=v=>String(v||"").toLowerCase();
 const priorities={ambient:10,mission:40,interaction:55,action:75,danger:90,narrative:100};
 
@@ -15,6 +16,33 @@ function lease(source,context,priority,durationMs,reason){
 }
 function release(source){const changed=leases.delete(source);if(changed)evaluate();return changed;}
 function activeLeases(){const time=now();for(const [key,item] of leases)if(item.expiresAt!==Infinity&&item.expiresAt<=time)leases.delete(key);return [...leases.values()].sort((a,b)=>b.priority-a.priority||b.expiresAt-a.expiresAt);}
+function activityProfile(kind){
+ if(kind==="relic")return{context:cat.contexts.ARCHAEOLOGY,axis:"research",reason:"activity-relic"};
+ if(kind==="research")return{context:cat.contexts.RESEARCH,axis:"research",reason:"activity-research"};
+ if(kind==="collection")return{context:cat.contexts.EXPLORATION_SIGNIFICANT,axis:"collection",reason:"activity-collection"};
+ if(kind==="observation")return{context:cat.contexts.EXPLORATION_CALM,axis:"exploration",reason:"activity-observation"};
+ return null;
+}
+function pruneActivity(){const cutoff=now()-ACTIVITY_WINDOW_MS;while(activityHistory.length&&activityHistory[0].at<cutoff)activityHistory.shift();}
+function activitySnapshot(){
+ pruneActivity();const counts={collection:0,observation:0,relic:0,research:0};
+ activityHistory.forEach(item=>{counts[item.kind]=(counts[item.kind]||0)+1;});
+ const total=activityHistory.length,dominant=Object.keys(counts).sort((a,b)=>counts[b]-counts[a])[0]||null;
+ return{windowMs:ACTIVITY_WINDOW_MS,total,counts,dominant,share:dominant&&total?counts[dominant]/total:0,streak:lastActivity?.streak||0,lastKind:lastActivity?.kind||null,mapId:currentMapId};
+}
+function registerActivity(kind,event){
+ const time=now(),mapId=event.mapId||event.detail?.mapId||currentMapId||null;
+ if(currentMapId&&mapId&&mapId!==currentMapId){activityHistory.length=0;lastActivity=null;}
+ if(mapId)currentMapId=mapId;
+ const streak=lastActivity?.kind===kind?lastActivity.streak+1:1;
+ lastActivity={kind,streak,at:time};activityHistory.push({kind,at:time,mapId:currentMapId});pruneActivity();
+ const profile=activityProfile(kind);
+ if(profile&&streak>=STREAK_REQUIRED)lease("activity-streak",profile.context,priorities.mission,90000,profile.reason+"-streak");
+ const snapshot=activitySnapshot(),dominantProfile=activityProfile(snapshot.dominant);
+ if(dominantProfile&&snapshot.total>=DOMINANCE_MIN_ACTIONS&&snapshot.share>DOMINANCE_SHARE)
+  lease("activity-dominant",dominantProfile.context,priorities.mission+2,DOMINANCE_LEASE_MS,dominantProfile.reason+"-dominant");
+ evaluate();
+}
 function actionContext(action){
  const value=lower(action);
  if(/rest|eat|food|sleep/.test(value))return cat.contexts.REST;
@@ -25,18 +53,15 @@ function actionContext(action){
  return null;
 }
 function baseline(){
- const engine=BF.currentEngine,action=lastMission?.currentAction?.type;
- if(engine?.currentRoutine?.type){
-  const context=actionContext(engine.currentRoutine.type);
-  if(context)return{context,priority:priorities.mission,reason:"routine:"+engine.currentRoutine.type};
- }
+ const action=lastMission?.currentAction?.type;
  const missionContext=actionContext(action);
  if(missionContext)return{context:missionContext,priority:priorities.mission,reason:"mission-action:"+action};
  return{context:cat.contexts.EXPLORATION_CALM,priority:priorities.ambient,reason:"ambient-exploration"};
 }
 function bacSignal(winner){
  const d=BF.getBACDiagnostics?.()||BF.BAC?.getDiagnostics?.()||{},decision=d.lastDecision||{},survival=d.survival||BF.getSurvivalState?.()||{};
- const axis=decision.axis||({research:"research",archaeology:"research",craft:"research",civilization:"relations",rest:"survival",danger:"survival"}[winner.context])||"exploration";
+ const activityKind=String(winner.reason||"").match(/^activity-(collection|observation|relic|research)/)?.[1];
+ const axis=(activityKind&&activityProfile(activityKind)?.axis)||decision.axis||({research:"research",archaeology:"research",craft:"research",civilization:"relations",rest:"survival",danger:"survival"}[winner.context])||"exploration";
  const recent=objectTimes.filter(at=>at>=now()-8000).length;
  let activation=recent>=4?4:recent>=2?2:0;
  if(Number(decision.at)>0&&now()-Number(decision.at)<45000)activation=Math.max(activation,1);
@@ -57,20 +82,21 @@ function evaluate(){
  if(contextChanged){current=key;lastReason=winner.reason;music.setContext(winner.context,{priority:winner.priority,source:"gameplay-bridge",reason:winner.reason});}
  global.dispatchEvent?.(new CustomEvent("bluefox:music-context-resolved",{detail:{...winner,version:VERSION}}));
 }
-function tags(event){return[...(event.tags||[]),event.category,event.family,event.knowledgeFamily,event.objectId].map(lower).filter(Boolean);}
+function tags(event){return[...(event.tags||[]),event.category,event.family,event.knowledgeFamily,event.objectId,event.inventoryKey,event.detail?.kind,event.detail?.subject,event.detail?.cuoType,event.detail?.label,event.detail?.microSceneId].map(lower).filter(Boolean);}
 function onObject(event){
  const e=event.detail||{},type=e.type,labels=tags(e);
  objectTimes.push(now());while(objectTimes.length&&objectTimes[0]<now()-8000)objectTimes.shift();
- if(type==="PHENOMENON_OBSERVED")lease("phenomenon",cat.contexts.EXPLORATION_SIGNIFICANT,65,28000,"phenomenon-observed");
- else if(type==="OBJECT_ANALYZED"||type==="KNOWLEDGE_ACQUIRED")lease("knowledge",cat.contexts.RESEARCH,priorities.interaction,32000,"knowledge-interaction");
- else if(["OBJECT_CRAFTED","OBJECT_BUILT","OBJECT_REPAIRED"].includes(type))lease("craft",cat.contexts.CRAFT,priorities.interaction,30000,"craft-interaction");
- else if((type==="OBJECT_SEEN"||type==="OBJECT_INSPECTED")&&labels.some(v=>/ruin|relic|artefact|artifact|technology|ancient|civilization/.test(v)))
-  lease("archaeology",cat.contexts.ARCHAEOLOGY,priorities.interaction,32000,"archaeology-interaction");
- if(objectTimes.length>=4)lease("action-burst",cat.contexts.ACTION_DYNAMIC,priorities.action,22000,"rapid-actions");
+ const relic=labels.some(v=>/ruin|relic|artefact|artifact|technology|ancient|civilization|micro.?scene/.test(v));
+ if(["RESOURCE_COLLECTED","RESOURCE_EXTRACTED"].includes(type))registerActivity("collection",e);
+ else if(relic&&["OBJECT_SEEN","OBJECT_INSPECTED","OBJECT_ANALYZED","PHENOMENON_OBSERVED","KNOWLEDGE_ACQUIRED"].includes(type))registerActivity("relic",e);
+ else if(type==="OBJECT_ANALYZED"||type==="KNOWLEDGE_ACQUIRED")registerActivity("research",e);
+ else if(["OBJECT_SEEN","OBJECT_INSPECTED","PHENOMENON_OBSERVED"].includes(type))registerActivity("observation",e);
+ else if(["OBJECT_CRAFTED","OBJECT_BUILT","OBJECT_REPAIRED"].includes(type))lease("craft",cat.contexts.CRAFT,priorities.interaction,60000,"craft-interaction");
 }
 function onMission(event){lastMission=event.detail||null;evaluate();}
 function onTransition(event){
  const detail=event.detail||{};
+ activityHistory.length=0;lastActivity=null;currentMapId=detail.mapId||detail.toMapId||detail.destinationMapId||null;release("activity-streak");release("activity-dominant");
  lease("map-arrival",detail.isNew?cat.contexts.MAP_DISCOVERY:cat.contexts.EXPLORATION_SIGNIFICANT,detail.isNew?88:60,detail.isNew?24000:14000,detail.isNew?"new-map-discovery":"known-map-arrival");
 }
 function onMilestone(event){
@@ -95,7 +121,7 @@ BF.MusicGameplayBridge=Object.freeze({
  version:VERSION,priorities,
  setTemporaryContext:(source,context,priority=55,durationMs=60000,reason="external")=>lease(source,context,priority,durationMs,reason),
  releaseContext:release,
- getDiagnostics:()=>({version:VERSION,current,lastReason,leases:activeLeases(),baseline:baseline()}),
+ getDiagnostics:()=>({version:VERSION,current,lastReason,leases:activeLeases(),baseline:baseline(),activity:activitySnapshot(),thresholds:{streak:STREAK_REQUIRED,dominanceMinActions:DOMINANCE_MIN_ACTIONS,dominanceShare:DOMINANCE_SHARE,windowMs:ACTIVITY_WINDOW_MS}}),
  dispose:()=>{if(timer)global.clearInterval(timer);listeners.forEach(([type,handler])=>global.removeEventListener(type,handler));global.document?.removeEventListener?.("visibilitychange",onVisibility);leases.clear();}
 });
 BF.getMusicBridgeDiagnostics=()=>BF.MusicGameplayBridge.getDiagnostics();
