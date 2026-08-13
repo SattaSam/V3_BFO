@@ -1,0 +1,35 @@
+.bluefox-music-button {
+  position: absolute;
+  z-index: 15;
+  left: 268px;
+  bottom: 104px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(111, 214, 255, .5);
+  border-radius: 50%;
+  color: #c8f7ff;
+  background: #071a2de8;
+  box-shadow: 0 8px 22px #0008, 0 0 14px #42d7ff33;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.bluefox-music-button.disabled {
+  color: #718895;
+  border-color: rgba(113, 136, 149, .45);
+  opacity: .72;
+  filter: grayscale(1);
+}
+
+body:has(.drawer, .full-screen-panel) .bluefox-music-button {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+@media (max-width: 900px) {
+  .bluefox-music-button {
+    left: 226px;
+    bottom: 104px;
+  }
+}
