@@ -1,6 +1,6 @@
 # BlueFox Odyssey — Roadmap et TODO
 
-Mise à jour : **10 août 2026**
+Mise à jour : **13 août 2026**
 
 Cette page est la **seule TODO active**.
 
@@ -88,6 +88,19 @@ Référence détaillée historique : `docs/CUO_BANC_VALIDATION_3D.md`.
 ## P3 — Non-régression du socle 3D
 
 Ces contrôles accompagnent les chantiers actifs mais ne bloquent plus la clôture du Runtime missionnel.
+
+### Chantier identifié — remise en conformité du banc de tests
+
+État de référence au commit `b15c7f5` : **29 tests, 20 réussis, 9 en échec**. Les mêmes neuf échecs sont déjà présents sur la base antérieure `185a400` (`Music+`) ; ils ne sont pas une régression du contrat canonique MSC, mais ne doivent pas rester durablement hors surveillance.
+
+- [ ] Réparer les quatre tests d'interactions avec la flore : observation puis analyse d'une flore connue, analyse autonome, première observation d'une plante fibreuse et arbitrage `observe` plutôt que `collect` pour un objectif d'analyse.
+- [ ] Réparer les trois tests Bible/Runtime : filtrage `type`/`kind`, compilation des trois fiches cumulatives et chaîne collecte → activation → progression → narration.
+- [ ] Vérifier si le catalogue Bible vide dans l'environnement de test provient d'un chargement incomplet du banc ou d'une attente devenue obsolète, puis corriger la cause sans modifier le comportement validé en jeu.
+- [ ] Réviser les deux tests historiques de MAP_Test : préréglage `evolution-preset` et ancienne attente texture/capsule.
+- [ ] Supprimer ou réécrire uniquement les attentes réellement obsolètes ; ne pas masquer un défaut moteur par un assouplissement des assertions.
+- [ ] Ajouter au banc un test permanent du contrat MSC : 37 scènes, 1 306 objets, transformations locales exactes, échelles CUO préservées et instances ObjectSpawner à ancrages indépendants.
+- [ ] Conserver `MSC-CUSTOM-CARRIEREDECRISTAUX1`, `MSC-CUSTOM-CAMP-BASE` et `MSC-CUSTOM-CAMP-BASE-REINFORCED` comme témoins de non-régression des rotations, inclinaisons et hauteurs.
+- [ ] Critère de clôture : suite entièrement verte ou chaque exclusion restante explicitement documentée, justifiée et isolée du moteur de production.
 
 - [ ] Vérifier l’absence d’erreur JavaScript au chargement après chaque lot CUO.
 - [ ] Recharger la page et vérifier les persistances importantes.

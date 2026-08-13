@@ -898,6 +898,45 @@
       };
     }
 
+    sitePlacementPreset(microSceneId, engine = BF.currentEngine) {
+      return engine?.currentMap?.definition?.crashSite?.campSitePlacements?.[
+        microSceneId
+      ] || BF.maps?.[engine?.currentMapId]?.crashSite?.campSitePlacements?.[
+        microSceneId
+      ] || null;
+    }
+
+    resolveSitePlacement(effect) {
+      const preset = this.sitePlacementPreset(effect?.microSceneId);
+      if (preset?.position) {
+        return {
+          anchor: clone(preset.position),
+          rotation: Array.isArray(preset.rotation)
+            ? preset.rotation.map((value) => Number(value) || 0)
+            : [0, Number(preset.rotation) || 0, 0]
+        };
+      }
+      const anchor = this.resolveSpawnOrigin(effect);
+      if (!anchor) return null;
+      const requestedRotation = effect?.placement?.rotation;
+      return {
+        anchor,
+        rotation: Array.isArray(requestedRotation)
+          ? requestedRotation.map((value) => Number(value) || 0)
+          : [0, Number(requestedRotation) || 0, 0]
+      };
+    }
+
+    applyCanonicalSitePlacement(site, engine = BF.currentEngine) {
+      const preset = this.sitePlacementPreset(site?.microSceneId, engine);
+      if (!preset?.position) return site;
+      site.anchor = clone(preset.position);
+      site.rotation = Array.isArray(preset.rotation)
+        ? preset.rotation.map((value) => Number(value) || 0)
+        : [0, Number(preset.rotation) || 0, 0];
+      return site;
+    }
+
     attachSiteRecords(records, site, engine = BF.currentEngine) {
       const map = engine?.currentMap;
       if (!map || !records?.length) return false;
@@ -937,7 +976,13 @@
       });
       const records = spawner.spawnMicroScene(
         site.microSceneId,
-        { origin: site.anchor, scene: map.group, force: true, source: `site:${site.id}` }
+        {
+          origin: site.anchor,
+          rotation: site.rotation || [0, 0, 0],
+          scene: map.group,
+          force: true,
+          source: `site:${site.id}`
+        }
       );
       return this.attachSiteRecords(records, site, engine);
     }
@@ -955,8 +1000,8 @@
       const consume = effects.find((effect) => effect.type === "inventory.consume");
       const establish = effects.find((effect) => effect.type === "site.establish");
       if (!establish || !BF.MicroScenes?.get?.(establish.microSceneId)) return false;
-      const origin = this.resolveSpawnOrigin(establish);
-      if (!origin) return false;
+      const placement = this.resolveSitePlacement(establish);
+      if (!placement) return false;
       if (consume) {
         const quantity = Number(consume.quantity) || 0;
         if ((BF.progression?.availableInventory?.([consume.inventoryKey]) || 0) < quantity) {
@@ -975,7 +1020,8 @@
         mapId,
         missionId: mission.id,
         microSceneId: establish.microSceneId,
-        anchor: clone(origin),
+        anchor: clone(placement.anchor),
+        rotation: placement.rotation.slice(),
         interactionRadius: 8,
         establishedAt: Date.now()
       };
@@ -989,7 +1035,9 @@
     renderCurrentSite(engine = BF.currentEngine) {
       const mapId = engine?.currentMapId;
       const site = engine?.missionManager?.memory?.state?.siteProgression?.[mapId];
-      return site ? this.renderSite(site, engine) : false;
+      if (!site) return false;
+      this.applyCanonicalSitePlacement(site, engine);
+      return this.renderSite(site, engine);
     }
 
     onMissionState(state) {
