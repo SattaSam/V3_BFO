@@ -1367,11 +1367,17 @@
       }
       let destination;
       try {
+        const missionState = this.missionManager?.getState?.() || BF.getMissionState?.();
+        const activeMissionCount = Array.isArray(missionState?.activeMissionIds)
+          ? missionState.activeMissionIds.length
+          : 0;
         destination = BF.MapGenerator.generate({
           fromMapId: this.currentMapId,
           direction,
           discoveryIndex: this.discoveredMaps.size,
-          ordinal: BF.MapGenerator.listSaved().length + 1
+          ordinal: BF.MapGenerator.listSaved().length + 1,
+          lowMissionProgress: activeMissionCount <=
+            BF.MapGenerationRules.discoveryCadence.lowMissionActiveMaximum
         });
       } catch (error) {
         console.error("Échec de génération de map", error);

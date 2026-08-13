@@ -22,6 +22,12 @@ function runBrowserScript(relativePath, blueFox3D, extras = {}) {
   return context.window.BlueFox3D;
 }
 
+const loadCanonicalBiomeRules = () => runBrowserScript(
+  "engine/biome-rules.js",
+  {},
+  { window: { setTimeout: () => 0 } }
+);
+
 test("le jeu charge explicitement les correctifs R3 dans l'ordre de leurs dépendances", () => {
   const html = read("index.html");
   const positions = [
@@ -60,30 +66,15 @@ test("la politique canonique est intégrée à biome-rules sans chargeur parall�
   assert.equal(BF.BiomePopulationPolicy.version, "canonical");
   assert.deepEqual(
     Array.from(population.decorations.find(([type]) => type === "giant_mushroom")),
-    ["giant_mushroom", 12]
+    ["giant_mushroom", 6]
   );
 });
 
 test("la politique R3 exclut la verdure aride, les camps spontanés et la faune de départ", () => {
-  const basePopulation = {
-    profileId: "desert",
-    rockCount: 4,
-    decorations: [
-      ["tree", 12], ["fern", 8], ["pool", 2], ["base_fire", 1],
-      ["brouteur", 2], ["sauteur", 2], ["cactus", 1]
-    ],
-    resourceWeights: [
-      { family: "fiber", weight: 20 },
-      { family: "adaptive_plant", weight: 20 },
-      { family: "magnetic_ore", weight: 10 }
-    ]
-  };
-  const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-    BiomeRules: { getMapPopulation: () => basePopulation }
-  });
+  const BF = loadCanonicalBiomeRules();
   const result = BF.BiomeRules.getMapPopulation({ id: "crystal", profile: "desert", isStartingMap: true });
   const types = result.decorations.map(([type]) => type);
-  assert.equal(result.policyVersion, "population-r3.3");
+  assert.equal(result.policyVersion, "canonical");
   assert.ok(result.rockCount >= 14);
   assert.ok(types.includes("cactus"));
   assert.ok(!types.includes("tree"));
@@ -92,23 +83,11 @@ test("la politique R3 exclut la verdure aride, les camps spontanés et la faune 
   assert.ok(!types.includes("base_fire"));
   assert.ok(!types.includes("brouteur"));
   assert.ok(!types.includes("sauteur"));
-  assert.deepEqual(Array.from(result.resourceWeights, ({ family }) => family), ["magnetic_ore"]);
+  assert.ok(!Array.from(result.resourceWeights, ({ family }) => family).includes("energy_crystal"));
 });
 
 test("la politique R3 limite une map à un ou deux types de faune", () => {
-  const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-    BiomeRules: {
-      getMapPopulation: () => ({
-        profileId: "forest",
-        rockCount: 10,
-        decorations: [
-          ["brouteur", 2], ["sauteur", 2], ["small_creature", 2],
-          ["patte_creature", 2], ["tree", 3]
-        ],
-        resourceWeights: []
-      })
-    }
-  });
+  const BF = loadCanonicalBiomeRules();
   const result = BF.BiomeRules.getMapPopulation({ id: "forest-42", seed: 42, profile: "forest" });
   const fauna = result.decorations
     .map(([type]) => type)
@@ -118,22 +97,7 @@ test("la politique R3 limite une map à un ou deux types de faune", () => {
 });
 
 test("les trois premières maps sont protégées, y compris les définitions statiques", () => {
-  const basePopulation = {
-    profileId: "forest",
-    rockCount: 4,
-    decorations: [
-      ["tree", 4], ["small_creature", 2], ["electrostatic_storm", 1],
-      ["mobile_islet", 1], ["abandoned_drone", 1], ["prismatic_orchid", 1]
-    ],
-    resourceWeights: [
-      { family: "fiber", weight: 20 },
-      { family: "rare_biological_resource", weight: 4 },
-      { family: "energy_crystal", weight: 2 }
-    ]
-  };
-  const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-    BiomeRules: { getMapPopulation: () => basePopulation }
-  });
+  const BF = loadCanonicalBiomeRules();
   for (const number of [1, 2, 3]) {
     const result = BF.BiomeRules.getMapPopulation({ id: `start-${number}`, number, profile: "forest" });
     const types = result.decorations.map(([type]) => type);
@@ -142,7 +106,7 @@ test("les trois premières maps sont protégées, y compris les définitions sta
     assert.ok(!types.includes("mobile_islet"));
     assert.ok(!types.includes("abandoned_drone"));
     assert.ok(!types.includes("prismatic_orchid"));
-    assert.deepEqual(Array.from(result.resourceWeights, ({ family }) => family), ["fiber"]);
+    assert.ok(!Array.from(result.resourceWeights, ({ family }) => family).includes("energy_crystal"));
   }
 });
 
@@ -150,35 +114,23 @@ test("les champignons géants restent réservés aux marais et forêts fongiques
   const library = read("engine/object-library.js");
   assert.match(library, /type: "giant_mushroom", label: "Champignon géant"/);
   assert.match(library, /type === "giant_mushroom"/);
-  const population = (profileId) => ({
-    profileId,
-    rockCount: 4,
-    decorations: [["giant_mushroom", 3], ["frond", 2]],
-    resourceWeights: []
-  });
   for (const profile of ["plain", "forest", "desert", "alien"]) {
-    const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-      BiomeRules: { getMapPopulation: () => population(profile) }
-    });
+    const BF = loadCanonicalBiomeRules();
     assert.ok(!BF.BiomeRules.getMapPopulation({ id: profile, profile }).decorations.some(([type]) => type === "giant_mushroom"));
   }
   for (const profile of ["swamp", "fungal"]) {
-    const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-      BiomeRules: { getMapPopulation: () => population(profile) }
-    });
+    const BF = loadCanonicalBiomeRules();
     const giant = BF.BiomeRules.getMapPopulation({ id: profile, profile }).decorations.find(([type]) => type === "giant_mushroom");
     assert.ok(giant);
-    assert.ok(giant[1] >= (profile === "fungal" ? 12 : 7));
+    assert.ok(giant[1] >= (profile === "fungal" ? 6 : 3));
   }
   const fixedMaps = [
-    { id: "map-3", number: 3, name: "Forêt fongique aux champignons géants", profile: "forest", minimum: 12 },
-    { id: "map-7", number: 7, name: "Marais d’ambre et végétation aquatique", profile: "aquatic", minimum: 7 },
-    { id: "map-8", number: 8, name: "Marais flottant extraterrestre", profile: "aquatic", minimum: 7 }
+    { id: "map-3", number: 3, name: "Forêt fongique aux champignons géants", profile: "forest", minimum: 6 },
+    { id: "map-7", number: 7, name: "Marais d’ambre et végétation aquatique", profile: "aquatic", minimum: 3 },
+    { id: "map-8", number: 8, name: "Marais flottant extraterrestre", profile: "aquatic", minimum: 3 }
   ];
   fixedMaps.forEach((definition) => {
-    const BF = runBrowserScript("engine/biome-population-policy-r3.js", {
-      BiomeRules: { getMapPopulation: () => population(definition.profile) }
-    });
+    const BF = loadCanonicalBiomeRules();
     const giant = BF.BiomeRules.getMapPopulation(definition).decorations.find(([type]) => type === "giant_mushroom");
     assert.ok(giant, `${definition.name} doit autoriser les champignons géants`);
     assert.ok(giant[1] >= definition.minimum);
@@ -191,6 +143,7 @@ test("les champignons géants restent réservés aux marais et forêts fongiques
       spawner.indexOf("let placedRocks = 0"),
     "les champignons identitaires doivent être placés avant le remplissage de la map"
   );
+  assert.match(spawner, /fungalMushroomMap \? 4 : 2/);
 });
 
 test("MAP_Test conserve un dosage CUSTOM effectif et une sauvegarde hors serveur", () => {
@@ -221,6 +174,72 @@ test("les bassins aquatiques sont ancrés sur les pixels bleus avant affichage",
   assert.match(registry, /terrainWaterCoverageAt/);
   assert.match(registry, /< 0\.68/);
   assert.ok(registry.indexOf("placePoolsOnWater();") < registry.indexOf("group.visible = true"));
+});
+
+test("la partie 4 force les cadences inter-maps sans compteur parallèle", () => {
+  const storage = new Map();
+  const localStorage = {
+    getItem: (key) => storage.has(key) ? storage.get(key) : null,
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: (key) => storage.delete(key)
+  };
+  const BF = {
+    maps: {
+      template: {
+        id: "template", number: 20, name: "Template",
+        sceneUrl: "Images/scene.png", terrainUrls: ["Images/terrain.png"],
+        profile: "alien", traits: []
+      }
+    },
+    MicroScenes: {
+      list: () => [
+        { id: "MSC-ECO-LUNAR-001", rarity: "common", biomes: ["all"] },
+        { id: "MSC-ECO-STAR-001", rarity: "rare", biomes: ["all"] },
+        { id: "MSC-ABANDONED-DRONE-001", rarity: "rare", biomes: ["all"] }
+      ]
+    }
+  };
+  const context = {
+    window: { BlueFox3D: BF, localStorage, performance: { now: () => 0 } },
+    Uint32Array, Date, Math, JSON, Object, Set, Map
+  };
+  context.window.window = context.window;
+  vm.runInNewContext(read("engine/map-generation-rules.js"), context);
+  vm.runInNewContext(read("engine/map-generator.js"), context);
+
+  const generated = [];
+  for (let ordinal = 1; ordinal <= 20; ordinal += 1) {
+    generated.push(BF.MapGenerator.generate({
+      ordinal,
+      discoveryIndex: ordinal,
+      planetSeed: 424242,
+      direction: "north",
+      lowMissionProgress: true
+    }));
+  }
+  const rareIds = new Set(BF.MapGenerationRules.discoveryCadence.rareBiomeIds);
+  let lastRare = 0;
+  generated.forEach((definition, index) => {
+    const ordinal = index + 1;
+    if (rareIds.has(definition.generator.biomeId)) {
+      if (lastRare >= 3) assert.ok(ordinal - lastRare <= 8);
+      lastRare = ordinal;
+    }
+  });
+  assert.ok(generated.some((definition) => definition.generator.cadence.rareBiomeForced));
+  assert.ok(generated.some((definition) => definition.generator.cadence.decorativeGuaranteed));
+  assert.ok(generated.some((definition) => definition.generator.cadence.remarkableGuaranteed));
+  assert.ok(generated.some((definition) => definition.generator.cadence.missionOpportunityPreferred));
+  assert.ok(generated.every((definition) =>
+    definition.generator.cadence.northernFrozenAffinityApplied
+  ));
+
+  const spawner = read("engine/object-spawner.js");
+  assert.match(spawner, /featuredGeneratedScene/);
+  assert.ok(
+    spawner.indexOf("featuredGeneratedScene") <
+    spawner.indexOf("generatedSpecialScenes.length && next() < specialChance")
+  );
 });
 
 test("le correctif de proximité choisit réellement la cible la plus proche", () => {

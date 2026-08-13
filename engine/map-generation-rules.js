@@ -160,6 +160,19 @@
     6: record({ min: 6, max: 10, rareMax: 2 })
   });
 
+  const DISCOVERY_CADENCE = record({
+    eligibleAfterDiscovery: 3,
+    rareBiomeInterval: record({ min: 7, max: 8 }),
+    decorativeSceneInterval: record({ min: 8, max: 10 }),
+    remarkableSceneInterval: record({ min: 12, max: 15 }),
+    lowMissionActiveMaximum: 1,
+    rareBiomeIds: freeze([
+      "frozen", "volcanic", "magnetic", "electrical", "city",
+      "floating_islands", "curiosity"
+    ]),
+    northernFrozenMultiplier: 4
+  });
+
   const CRYSTAL = record({
     id: "crystal",
     role: "origin",
@@ -196,6 +209,7 @@
     richOneByOne: RICH_ONE_BY_ONE,
     microSceneClasses: MICRO_SCENE_CLASSES,
     microSceneCounts: MICRO_SCENE_COUNTS,
+    discoveryCadence: DISCOVERY_CADENCE,
     legacyProfileAliases: LEGACY_PROFILE_ALIASES,
 
     getBiome(id) { return byId[id] || null; },

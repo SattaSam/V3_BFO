@@ -7,7 +7,7 @@
     root.traverse((child) => {
       if (!child.isMesh) return;
       if (child.userData.interactable) return;
-      child.castShadow = true;
+      child.castShadow = root.userData.disableCastShadow !== true;
       child.receiveShadow = true;
     });
     return root;
@@ -622,15 +622,16 @@
       root.add(strap);
       hitbox = makeHitbox(THREE, root, 0.52, 1.1, type);
     } else if (type === "giant_mushroom") {
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.62, 3, 10), material(THREE, { color: 0xcad9bd, roughness: 0.88 }));
+      root.userData.disableCastShadow = true;
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.62, 3, 8), material(THREE, { color: 0xcad9bd, roughness: 0.88 }));
       stem.position.y = 1.5;
       root.add(stem);
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(1.55, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), violet);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(1.55, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2), violet);
       cap.scale.y = 0.65;
       cap.position.y = 3.05;
       root.add(cap);
-      for (let index = 0; index < 7; index += 1) {
-        const spot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), luminousGreen);
+      for (let index = 0; index < 5; index += 1) {
+        const spot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), luminousGreen);
         const angle = index * 2.399;
         spot.position.set(Math.cos(angle) * (0.45 + index * 0.09), 3.65 - index * 0.045, Math.sin(angle) * (0.45 + index * 0.09));
         root.add(spot);

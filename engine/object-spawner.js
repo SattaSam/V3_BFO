@@ -434,8 +434,14 @@
             mapBudget.resourcesMin +
             next() * (mapBudget.resourcesMax - mapBudget.resourcesMin)
           );
-      const landmarkCount = mapBudget.landmarksMin + Math.floor(
-        next() * (mapBudget.landmarksMax - mapBudget.landmarksMin + 1)
+      const requestedFeaturedSceneIds = Array.isArray(definition.generator?.featuredMicroSceneIds)
+        ? definition.generator.featuredMicroSceneIds.filter(Boolean)
+        : [definition.generator?.featuredMicroSceneId].filter(Boolean);
+      const landmarkCount = Math.max(
+        requestedFeaturedSceneIds.length,
+        mapBudget.landmarksMin + Math.floor(
+          next() * (mapBudget.landmarksMax - mapBudget.landmarksMin + 1)
+        )
       );
       const landmarkTemplate = BF.MicroScenes.getMapLandmark(population.profileId);
       const mapNumber = Number(definition.number);
@@ -454,6 +460,9 @@
             "charged_crystals", "abandoned_drone_site", "nocturnal_den",
             "local_storm", "suspended_island", "predator_flora"
           ].includes(Object.keys(BF.MicroScenes.data).find((key) => BF.MicroScenes.data[key] === scene)))
+        : [];
+      const featuredGeneratedScenes = definition.generated && !tutorialProtected
+        ? requestedFeaturedSceneIds.map((id) => BF.MicroScenes.get(id)).filter(Boolean)
         : [];
       const generationContext = `${
         definition.generator?.biomeId || ""
@@ -649,7 +658,9 @@
             decorationBudget * (Math.max(0, Number(count) || 0) / Math.max(1, decorationWeightTotal))
           ));
         allocatedDecorations += denseCount;
-        const targetCount = type === "electrostatic_storm"
+        const targetCount = type === "giant_mushroom"
+          ? Math.max(0, Math.min(fungalMushroomMap ? 4 : 2, denseCount) - (placedTypeCounts.get(type) || 0))
+          : type === "electrostatic_storm"
           ? Math.min(6, denseCount)
           : type === "crystalline_tree" && magneticContext
             ? Math.min(6, denseCount)
@@ -755,18 +766,25 @@
 
       if (!landmarks.length) {
         for (let landmarkIndex = 0; landmarkIndex < landmarkCount; landmarkIndex += 1) {
-          const center = randomPosition(9, 25, 4.2, "stele");
-          if (!center) continue;
-          const rotation = next() * Math.PI * 2;
-          const cosine = Math.cos(rotation);
-          const sine = Math.sin(rotation);
           const specialChance = ["magnetic", "electrical", "floating_islands", "curiosity"]
             .includes(definition.generator?.biomeId) ? 0.72 : 0.34;
-          const specialScene = landmarkIndex === 0 && suspendedIslandScene && !customFloatingSpawned
+          const specialScene = featuredGeneratedScenes[landmarkIndex]
+            ? featuredGeneratedScenes[landmarkIndex]
+            : landmarkIndex === 0 && suspendedIslandScene && !customFloatingSpawned
             ? suspendedIslandScene
             : landmarkIndex === 0 && generatedSpecialScenes.length && next() < specialChance
               ? generatedSpecialScenes[Math.floor(next() * generatedSpecialScenes.length)]
               : null;
+          const center = randomPosition(
+            9,
+            25,
+            Math.max(4.2, Number(specialScene?.radius) || 0),
+            "stele"
+          );
+          if (!center) continue;
+          const rotation = next() * Math.PI * 2;
+          const cosine = Math.cos(rotation);
+          const sine = Math.sin(rotation);
           const activeLandmark = specialScene
             ? specialScene.objects.map((entry) => [entry.type, entry.offset[0], entry.offset[2], entry.variant || 0])
             : landmarkTemplate;
