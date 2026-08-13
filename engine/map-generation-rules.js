@@ -80,7 +80,7 @@
       ["lava_fissure", "thermal_chimney", "obsidian_field", "burned_ruin"]),
     biome("magnetic", "Magnétique", 3, "rare", 0.75,
       { common: ["magnetic_ore"], uncommon: ["crystal", "debris"], rare: ["magnetic_core"] },
-      ["floating_rocks", "magnetic_vein", "warped_wreck", "local_storm"]),
+      ["floating_rocks", "suspended_island", "magnetic_vein", "warped_wreck", "local_storm"]),
     biome("electrical", "Électrique", 2, "rare", 0.75,
       { common: ["charged_crystal"], uncommon: ["magnetic_ore", "tech_component"], rare: ["energy_conductor"] },
       ["lightning_zone", "charged_crystals", "ancient_pylon", "conducting_pool", "local_storm"]),

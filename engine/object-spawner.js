@@ -365,9 +365,19 @@
         return null;
       };
 
+      let floatingHeightIndex = 0;
+      let elevatedFogIndex = 0;
+      const placedTypeCounts = new Map();
+      const contextText = `${definition.generator?.biomeId || ""} ${definition.name || ""} ${definition.description || ""} ${(definition.traits || []).map((trait) => `${trait.id || ""} ${trait.label || ""}`).join(" ")}`.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const floatingContext = /flott|suspend|levitat|ilot|island/.test(contextText);
       const placeObject = (type, x, z, variant = 0, rotation = 0) => {
+        const height = type === "mobile_islet"
+          ? 2.5 + floatingHeightIndex++ * 2.4
+          : type === "fog_bank" && floatingContext
+            ? (elevatedFogIndex++ % 2 ? 5.5 : 1.2)
+            : 0;
         const record = this.spawn(type, {
-          position: { x, y: 0, z },
+          position: { x, y: height, z },
           variant,
           rotation,
           force: true,
@@ -376,6 +386,7 @@
           source: "map-population"
         });
         const object = record.instance;
+        placedTypeCounts.set(type, (placedTypeCounts.get(type) || 0) + 1);
         object.root.userData.libraryType = type;
         occupied.push({ x, z, radius: placement(type).radius });
         animatedObjects.push({ root: object.root, type, phase: next() * Math.PI * 2 });
@@ -419,13 +430,60 @@
         next() * (mapBudget.landmarksMax - mapBudget.landmarksMin + 1)
       );
       const landmarkTemplate = BF.MicroScenes.getMapLandmark(population.profileId);
-      const generatedSpecialScenes = definition.generated
+      const tutorialProtected = definition.isStartingMap || definition.startingMap || definition.id === "crystal" || Number(definition.number) === 1 || Number(definition.generator?.discoveryIndex) <= 2;
+      const generatedSpecialScenes = definition.generated && !tutorialProtected
         ? (definition.generator?.microSceneIds || [])
           .map((id) => BF.MicroScenes.get(id))
           .filter((scene) => scene && [
             "charged_crystals", "abandoned_drone_site", "nocturnal_den",
             "local_storm", "suspended_island", "predator_flora"
           ].includes(Object.keys(BF.MicroScenes.data).find((key) => BF.MicroScenes.data[key] === scene)))
+        : [];
+      const generationContext = `${
+        definition.generator?.biomeId || ""
+      } ${definition.name || ""} ${definition.description || ""} ${
+        (definition.traits || []).map((trait) => `${trait.id || ""} ${trait.label || ""}`).join(" ")
+      }`.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const dedicatedFloatingIslands = !tutorialProtected && (
+        definition.generator?.biomeId === "floating_islands" ||
+        Number(definition.number) === 25 ||
+        (/ile|island/.test(generationContext) && /flott|floating|suspend/.test(generationContext))
+      );
+      const magneticContext = !tutorialProtected && /magnet/.test(generationContext);
+      const magneticDesert = magneticContext && /desert/.test(generationContext);
+      const glassSteppe = /steppe.*verre|verre.*steppe|glass.*steppe|steppe.*glass/.test(generationContext);
+      const vitrifiedLand = /lande vitrifi|vitrified.*heath|vitrified/.test(generationContext);
+      const populationRoll = (() => {
+        const text = `${definition.id || ""}:${definition.seed || ""}:${definition.number || ""}`;
+        let hash = 2166136261;
+        for (let index = 0; index < text.length; index += 1) {
+          hash ^= text.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0) / 4294967296;
+      })();
+      const requiresSuspendedIsland = !tutorialProtected && (
+        dedicatedFloatingIslands ||
+        (definition.generator?.biomeId === "magnetic" && /flott|suspend|levitat|floating.rock/.test(generationContext)) ||
+        (population.profileId === "swamp" && /marais|swamp/.test(generationContext) && /flott|floating/.test(generationContext) && /extraterrestre|alien/.test(generationContext))
+      );
+      const suspendedIslandScene = requiresSuspendedIsland
+        ? BF.MicroScenes.get("suspended_island")
+        : null;
+      const floatingIslandsCustomScene = dedicatedFloatingIslands
+        ? BF.MicroScenes.get("MSC-CUSTOM-ILES-SUSPENDUES2")
+        : null;
+      const ruinSceneIds = /megalo|city|cite|ruine.*jungle|jungle.*ruine|ruine.*envahi|envahi.*ruine/.test(generationContext)
+        ? [
+            "MSC-CUSTOM-COMPOSANT-RUIN", "MSC-CUSTOM-HABITAT-RUINE",
+            "MSC-CUSTOM-RUINE-MODULAIRE1", "MSC-CUSTOM-RUINE-MODULAIRE2",
+            "MSC-CUSTOM-WALL-RUIN-COLLAPSED", "MSC-CUSTOM-WALL-RUIN-STRAIGHT"
+          ]
+        : [];
+      const magneticMajorSceneIds = magneticContext
+        ? [
+            "MSC-CUSTOM-CARRIEREDECRISTAUX1", "MSC-CUSTOM-BASALT-RIFT"
+          ]
         : [];
       const landmarkObjectBudget = landmarks.length
         ? landmarks.length
@@ -536,13 +594,22 @@
             decorationBudget * (Math.max(0, Number(count) || 0) / Math.max(1, decorationWeightTotal))
           ));
         allocatedDecorations += denseCount;
+        const targetCount = type === "electrostatic_storm"
+          ? Math.min(6, denseCount)
+          : type === "crystalline_tree" && magneticContext
+            ? Math.min(6, denseCount)
+            : type === "crystalline_tree" && (glassSteppe || vitrifiedLand)
+              ? Math.min(3, denseCount)
+              : type === "mobile_islet" && magneticContext
+                ? Math.min(magneticDesert ? 5 : 3, denseCount)
+                : denseCount;
         let placed = 0;
         let guard = 0;
-        while (placed < denseCount && guard < denseCount * 5) {
+        while (placed < targetCount && guard < Math.max(5, targetCount * 5)) {
           guard += 1;
           const center = randomPosition(2.5, 27, placement(type).radius, type);
           if (!center) continue;
-          const remaining = denseCount - placed;
+          const remaining = targetCount - placed;
           const clusterSize = Math.min(
             remaining,
             next() < ambientCluster.isolatedChance
@@ -568,6 +635,66 @@
         }
       });
 
+      const spawnPreservedCustomScene = (template, minimumDistance = 10) => {
+        if (!template) return false;
+        const center = randomPosition(minimumDistance, 24, Math.max(3, template.radius || 3), "stele");
+        if (!center) return false;
+        this.spawnMicroScene(template.id, {
+          origin: { x: center.x, y: 0, z: center.z },
+          rotation: next() * Math.PI * 2,
+          scene: group,
+          palette: definition.palette,
+          source: "map-population-custom"
+        });
+        template.objects.forEach((entry) => {
+          placedTypeCounts.set(entry.type, (placedTypeCounts.get(entry.type) || 0) + 1);
+        });
+        return true;
+      };
+
+      // Les MSC Custom conservent ici leurs pivots/rotations/hauteurs CUO.
+      const customFloatingSpawned = floatingIslandsCustomScene && next() < 0.78
+        ? spawnPreservedCustomScene(floatingIslandsCustomScene, 8)
+        : false;
+      if (ruinSceneIds.length && next() < 0.58) {
+        const candidates = ruinSceneIds.map((id) => BF.MicroScenes.get(id)).filter(Boolean);
+        if (candidates.length) spawnPreservedCustomScene(candidates[Math.floor(next() * candidates.length)], 8);
+      }
+      if (magneticMajorSceneIds.length && next() < 0.72) {
+        const candidates = magneticMajorSceneIds.map((id) => BF.MicroScenes.get(id)).filter(Boolean);
+        if (candidates.length) spawnPreservedCustomScene(candidates[Math.floor(next() * candidates.length)], 7);
+      }
+
+      const ensureCount = (type, target, minDistance = 5, maxDistance = 22) => {
+        let guard = 0;
+        while ((placedTypeCounts.get(type) || 0) < target && guard < target * 16) {
+          guard += 1;
+          const center = randomPosition(minDistance, maxDistance, placement(type).radius, type);
+          if (center) placeObject(type, center.x, center.z, guard % 3, next() * Math.PI * 2);
+        }
+      };
+      if (glassSteppe || vitrifiedLand) ensureCount("crystalline_tree", 2 + (populationRoll >= 0.5 ? 1 : 0));
+      if (magneticContext) ensureCount("crystalline_tree", 2 + Math.floor(populationRoll * 5));
+      const isletChance = magneticDesert ? 0.82 : 0.56;
+      if (magneticContext && populationRoll < isletChance) {
+        const range = magneticDesert ? 4 : 3;
+        ensureCount("mobile_islet", 1 + Math.floor((populationRoll / isletChance) * range), 8, 25);
+      }
+      if (magneticContext && !["mobile_islet", "electrostatic_storm", "crystalline_tree"].some((type) => (placedTypeCounts.get(type) || 0) > 0)) {
+        const signatures = ["mobile_islet", "electrostatic_storm", "crystalline_tree"];
+        const type = signatures[Math.floor(next() * signatures.length)];
+        const center = randomPosition(7, 24, placement(type).radius, type);
+        if (center) placeObject(type, center.x, center.z, Math.floor(next() * 3), next() * Math.PI * 2);
+      }
+      if (dedicatedFloatingIslands) {
+        let guard = 0;
+        while ((placedTypeCounts.get("mobile_islet") || 0) < 3 && guard < 24) {
+          guard += 1;
+          const center = randomPosition(8, 25, placement("mobile_islet").radius, "mobile_islet");
+          if (center) placeObject("mobile_islet", center.x, center.z, guard % 3, next() * Math.PI * 2);
+        }
+      }
+
       if (!landmarks.length) {
         for (let landmarkIndex = 0; landmarkIndex < landmarkCount; landmarkIndex += 1) {
           const center = randomPosition(9, 25, 4.2, "stele");
@@ -577,13 +704,16 @@
           const sine = Math.sin(rotation);
           const specialChance = ["magnetic", "electrical", "floating_islands", "curiosity"]
             .includes(definition.generator?.biomeId) ? 0.72 : 0.34;
-          const specialScene = landmarkIndex === 0 && generatedSpecialScenes.length && next() < specialChance
-            ? generatedSpecialScenes[Math.floor(next() * generatedSpecialScenes.length)]
-            : null;
+          const specialScene = landmarkIndex === 0 && suspendedIslandScene && !customFloatingSpawned
+            ? suspendedIslandScene
+            : landmarkIndex === 0 && generatedSpecialScenes.length && next() < specialChance
+              ? generatedSpecialScenes[Math.floor(next() * generatedSpecialScenes.length)]
+              : null;
           const activeLandmark = specialScene
             ? specialScene.objects.map((entry) => [entry.type, entry.offset[0], entry.offset[2], entry.variant || 0])
             : landmarkTemplate;
           activeLandmark.forEach(([type, offsetX, offsetZ, variant]) => {
+            if (type === "electrostatic_storm" && (placedTypeCounts.get(type) || 0) >= 6) return;
             const x = center.x + offsetX * cosine - offsetZ * sine;
             const z = center.z + offsetX * sine + offsetZ * cosine;
             const object = placeObject(type, x, z, variant, rotation + next() * 0.45);
@@ -592,6 +722,7 @@
         }
       }
       landmarks.forEach(([type, x, z, variant, rotation]) => {
+        if (type === "electrostatic_storm" && (placedTypeCounts.get(type) || 0) >= 6) return;
         placeObject(type, x, z, variant, rotation);
       });
       return {
@@ -603,7 +734,8 @@
         decorationBudget,
         landmarkCount: landmarks.length ? 1 : landmarkCount,
         resourceFamilies: population.resourceFamilies,
-        richness: population.richness
+        richness: population.richness,
+        requiredSuspendedIsland: Boolean(suspendedIslandScene)
       };
     }
 
