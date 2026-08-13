@@ -394,6 +394,9 @@
       const placedTypeCounts = new Map();
       const contextText = `${definition.generator?.biomeId || ""} ${definition.name || ""} ${definition.description || ""} ${(definition.traits || []).map((trait) => `${trait.id || ""} ${trait.label || ""}`).join(" ")}`.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const floatingContext = /flott|suspend|levitat|ilot|island/.test(contextText);
+      const frozenIdentity = `${definition.generator?.biomeId || ""} ${definition.profile || ""} ${definition.name || ""} ${(definition.traits || []).map((trait) => trait.id || "").join(" ")}`.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const frozenRockContext = /(?:^|\s)(?:frozen|ice|snow|glace|glaciaire|banquise|neige|toundra)(?:\s|$)/.test(frozenIdentity);
+      const snowRockTypes = new Set(["rock", "strong_rock", "large_rock"]);
       const placeObject = (type, x, z, variant = 0, rotation = 0) => {
         const height = type === "mobile_islet"
           ? 2.5 + floatingHeightIndex++ * 2.4
@@ -411,6 +414,21 @@
         });
         const object = record.instance;
         placedTypeCounts.set(type, (placedTypeCounts.get(type) || 0) + 1);
+        if (frozenRockContext && snowRockTypes.has(type) && placedTypeCounts.get(type) % 3 === 0) {
+          object.root.traverse((node) => {
+            if (!node.isMesh || !node.material) return;
+            const whiten = (material) => {
+              const copy = material.clone();
+              if (copy.color) copy.color.lerp(new this.THREE.Color(0xe4eef2), 0.72);
+              copy.roughness = Math.max(0.78, Number(copy.roughness) || 0);
+              return copy;
+            };
+            node.material = Array.isArray(node.material)
+              ? node.material.map(whiten)
+              : whiten(node.material);
+          });
+          object.root.userData.snowCoveredRock = true;
+        }
         object.root.userData.libraryType = type;
         occupied.push({ x, z, radius: placement(type).radius });
         animatedObjects.push({ root: object.root, type, phase: next() * Math.PI * 2 });
@@ -507,6 +525,11 @@
       const swampMushroomMap =
         population.profileId === "swamp" ||
         /marais|swamp/.test(generationContext);
+      const underwaterContext =
+        population.profileId === "aquatic" ||
+        /sous marin|underwater|ocean/.test(generationContext);
+      const bioluminescentUnderwater = underwaterContext &&
+        /biolum|luminescen|fluorescen/.test(generationContext);
       const populationRoll = (() => {
         const text = `${definition.id || ""}:${definition.seed || ""}:${definition.number || ""}`;
         let hash = 2166136261;
@@ -539,13 +562,55 @@
             "MSC-CUSTOM-CARRIEREDECRISTAUX1", "MSC-CUSTOM-BASALT-RIFT"
           ]
         : [];
+      const underwaterCoralSceneIds = bioluminescentUnderwater
+        ? [
+            "MSC-CUSTOM-CORAILBIOLUMINESCENT1",
+            "MSC-CUSTOM-CORAILBIOLUMINESCENT2",
+            "MSC-CUSTOM-CORAILBIOLUMINESCENT3"
+          ]
+        : [];
       const landmarkObjectBudget = landmarks.length
         ? landmarks.length
         : landmarkCount * landmarkTemplate.length;
-      const remainingAfterResources = Math.max(
+      let remainingAfterResources = Math.max(
         0,
         targetObjectBudget - resourceCount - landmarkObjectBudget
       );
+
+      const spawnPreservedCustomScene = (template, minimumDistance = 10) => {
+        if (!template) return false;
+        const sceneRadius = Math.max(3, template.radius || 3);
+        const center = randomPosition(minimumDistance, 24, sceneRadius, "stele");
+        if (!center) return false;
+        this.spawnMicroScene(template.id, {
+          origin: { x: center.x, y: 0, z: center.z },
+          rotation: next() * Math.PI * 2,
+          scene: group,
+          palette: definition.palette,
+          source: "map-population-custom"
+        });
+        occupied.push({ x: center.x, z: center.z, radius: sceneRadius });
+        template.objects.forEach((entry) => {
+          placedTypeCounts.set(entry.type, (placedTypeCounts.get(entry.type) || 0) + 1);
+        });
+        return true;
+      };
+
+      if (underwaterCoralSceneIds.length) {
+        const coralScenes = underwaterCoralSceneIds
+          .map((id) => BF.MicroScenes.get(id))
+          .filter(Boolean);
+        const selectedCoralScene = coralScenes[
+          Math.min(coralScenes.length - 1, Math.floor(populationRoll * coralScenes.length))
+        ];
+        if (spawnPreservedCustomScene(selectedCoralScene, 5)) {
+          group.userData.underwaterCoralMicroSceneId = selectedCoralScene.id;
+          remainingAfterResources = Math.max(
+            0,
+            remainingAfterResources - selectedCoralScene.objects.length
+          );
+        }
+      }
 
       const guaranteeGiantMushrooms = () => {
         const target = fungalMushroomMap ? 2 : swampMushroomMap ? 1 : 0;
@@ -739,23 +804,6 @@
           }
         }
       });
-
-      const spawnPreservedCustomScene = (template, minimumDistance = 10) => {
-        if (!template) return false;
-        const center = randomPosition(minimumDistance, 24, Math.max(3, template.radius || 3), "stele");
-        if (!center) return false;
-        this.spawnMicroScene(template.id, {
-          origin: { x: center.x, y: 0, z: center.z },
-          rotation: next() * Math.PI * 2,
-          scene: group,
-          palette: definition.palette,
-          source: "map-population-custom"
-        });
-        template.objects.forEach((entry) => {
-          placedTypeCounts.set(entry.type, (placedTypeCounts.get(entry.type) || 0) + 1);
-        });
-        return true;
-      };
 
       // Les MSC Custom conservent ici leurs pivots/rotations/hauteurs CUO.
       const customFloatingSpawned = floatingIslandsCustomScene && next() < 0.78

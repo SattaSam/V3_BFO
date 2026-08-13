@@ -1,8 +1,29 @@
 # BlueFox Odyssey — Roadmap et TODO
 
-Mise à jour : **13 août 2026**
+Mise à jour : **14 août 2026**
 
 Cette page est la **seule TODO active**.
+
+## Étape 5 — correctifs supplémentaires
+
+État : **en cours, base cumulative `b1615bb`**.
+
+- [x] Spores immobiles et comportement rotatif des créatures supprimé.
+- [x] Coutures et sous-plateaux opaques ; brouillards améliorés.
+- [x] Catalogues et rendu MSC cohérents entre CUO Lab, MAP_Test et le jeu.
+- [x] Dosage fongique allégé : moins de champignons-lanternes, davantage de spores et de champignons géants.
+- [x] Placement rouge/bleu et dégagement des axes principaux sur les maps de 4 et 6 plateaux.
+- [x] Persistance caméra et position de la carte Planète ; premier centrage sur BlueFox.
+- [x] Volet droit du menu Planète ancré en haut et repères BlueFox/base/balise/drone préparés.
+- [x] Trois MSC coralliennes raccordées au moteur et injectées par défaut dans les mondes sous-marins bioluminescents à la place des arches droites isolées.
+- [x] Rochers blanchis limités explicitement aux contextes glace, banquise, neige et toundra.
+- [ ] Valider visuellement en jeu la répartition des trois MSC coralliennes et l'absence de roche blanche sous-marine.
+- [ ] Choix de la ressource réellement la plus proche.
+- [ ] Collecte après observation.
+- [ ] Priorité donnée à la commande manuelle.
+- [ ] Fatigue, récupération et annonces de repos.
+- [ ] MAP_Test : finir la qualification sauvegarde/relecture et dosage.
+- [ ] Menu Planète : validation finale du scroll limité sur les formats d'écran ciblés.
 
 ## JALON GELÉ — Bible + Runtime V0.1
 

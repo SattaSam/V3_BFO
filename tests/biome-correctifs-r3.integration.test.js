@@ -166,6 +166,35 @@ test("les arches gardent deux collisions de piliers et un passage central", () =
   assert.match(library, /Vector3\(1\.35,0,0\),radius:0\.4/);
 });
 
+test("les mondes sous-marins bioluminescents utilisent les trois MSC coralliennes sans arche droite isolée", () => {
+  const BF = loadCanonicalBiomeRules();
+  const population = BF.BiomeRules.getMapPopulation({
+    id: "underwater-bioluminescent",
+    name: "Monde sous marin bioluminescent",
+    profile: "aquatic",
+    traits: [{ id: "bioluminescent", label: "Bioluminescent" }]
+  });
+  assert.ok(!population.decorations.some(([type]) => type === "arch"));
+
+  const registry = JSON.parse(read("data/custom-micro-scenes.json"));
+  const coralScenes = registry.filter(({ id }) => /^MSC-CUSTOM-CORAILBIOLUMINESCENT[123]$/.test(id));
+  assert.equal(coralScenes.length, 3);
+  assert.deepEqual(Array.from(coralScenes, ({ objects }) => objects.length), [6, 8, 27]);
+  coralScenes.forEach((scene) => assert.ok(scene.objects.some(({ type }) => type === "arch")));
+
+  const spawner = read("engine/object-spawner.js");
+  coralScenes.forEach(({ id }) => assert.match(spawner, new RegExp(id)));
+  assert.match(spawner, /underwaterCoralMicroSceneId/);
+});
+
+test("les rochers enneigés restent strictement réservés à la glace, la banquise et la toundra", () => {
+  const spawner = read("engine/object-spawner.js");
+  assert.match(spawner, /const frozenIdentity/);
+  assert.match(spawner, /frozen\|ice\|snow\|glace\|glaciaire\|banquise\|neige\|toundra/);
+  assert.match(spawner, /frozenRockContext && snowRockTypes\.has\(type\)/);
+  assert.doesNotMatch(spawner, /frozenIdentity[^;]*description/);
+});
+
 test("les bassins aquatiques sont ancrés sur les pixels bleus avant affichage", () => {
   const registry = read("engine/map-registry.js");
   assert.match(registry, /attachTerrainColorSampler/);

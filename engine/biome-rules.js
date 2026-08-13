@@ -516,7 +516,10 @@
    }
    if(tropicalCoast){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"bush",14);addOrRaise(dec,"luminescent_tree",10);addOrRaise(dec,"crystalline_tree",4);}
    if(pebbleCoast){addOrRaise(dec,"nature_tree",12);const pool=dec.find(e=>e[0]==="pool");if(pool)pool[1]=Math.min(pool[1],3);}
-   if(underwater){addOrRaise(dec,"lunar_vine",15);addOrRaise(dec,"lantern_mushrooms",12);addOrRaise(dec,"arch",1);rocks=Math.max(rocks,9);}
+   if(underwater){
+     dec=dec.filter(([type])=>type!=="arch");
+     addOrRaise(dec,"lunar_vine",15);addOrRaise(dec,"lantern_mushrooms",12);rocks=Math.max(rocks,9);
+   }
    if(profile==="archipelago"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",9);}
    if(floating||profile==="atypical"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",7);addOrRaise(dec,"fog_bank",2);}
    if(isletMap&&(!magneticWorld||magneticRoll<.58))addOrRaise(dec,"mobile_islet",7);
