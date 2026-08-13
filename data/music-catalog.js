@@ -11,7 +11,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var VERSION = "1.1.0";
+  var VERSION = "1.2.1";
 
   var CONTEXTS = Object.freeze({
     EXPLORATION_CALM: "exploration_calm",
@@ -260,6 +260,8 @@
     "ambient-alt-intro":Object.freeze([step("drift.alt","intro"),step("drift.alt","loop-c"),step("main.intro","intro")]),
     "map-arrival-main":Object.freeze([step("main.intro","intro")]),
     "map-arrival-alt":Object.freeze([step("drift.alt","intro")]),
+    "map-arrival-evolution":Object.freeze([step("main.evolution","loop-a")]),
+    "map-arrival-drift-evolve":Object.freeze([step("drift.exploration","loop-b")]),
     "main-reference":Object.freeze([step("main.intro","intro"),step("main.evolution","loop-a")]),
     "relic-asymmetric":Object.freeze([step("relic.research","intro"),step("relic.research","loop-a"),step("relic.research","bridge"),step("relic.research","loop-a")]),
     "relic-dev-bridge":Object.freeze([step("relic.research","bridge"),step("relic.development","dev-56"),step("relic.civilization","bridge-short"),step("relic.research","return-28")]),
@@ -271,11 +273,41 @@
     "dynamics-insert":Object.freeze([step("dynamics.rapid","loop-long"),step("dynamics.action","insert"),step("dynamics.rapid","loop-long")])
   });
   var CONTEXT_SEQUENCES=Object.freeze({
-    exploration_calm:Object.freeze(["ambient-main-intro","ambient-alt-intro","drift-long","drift-maintain"]),map_discovery:Object.freeze(["map-arrival-main","map-arrival-alt"]),contemplation:Object.freeze(["drift-long","ambient-alt-intro","drift-maintain"]),rest:Object.freeze(["drift-maintain"]),camp:Object.freeze(["drift-maintain","main-reference"]),
+    exploration_calm:Object.freeze(["ambient-main-intro","ambient-alt-intro","drift-long","drift-maintain"]),map_discovery:Object.freeze(["map-arrival-main","map-arrival-alt","map-arrival-evolution","map-arrival-drift-evolve"]),contemplation:Object.freeze(["drift-long","ambient-alt-intro","drift-maintain"]),rest:Object.freeze(["drift-maintain"]),camp:Object.freeze(["drift-maintain","main-reference"]),
     exploration_significant:Object.freeze(["main-reference","ambient-alt-intro","drift-long"]),narrative_milestone:Object.freeze(["main-reference"]),research:Object.freeze(["relic-dev-direct","relic-dev-bridge","relic-dev-direct-alt","relic-dev-bridge-alt","relic-asymmetric"]),
     archaeology:Object.freeze(["relic-dev-bridge","relic-dev-direct-alt","relic-asymmetric"]),craft:Object.freeze(["relic-dev-direct","relic-dev-direct-alt","relic-asymmetric"]),civilization:Object.freeze(["relic-dev-bridge","main-reference"]),
     action_dynamic:Object.freeze(["dynamics-rapid","dynamics-long","dynamics-insert"]),danger:Object.freeze(["dynamics-rapid","dynamics-long"])
   });
+
+  const sp=(axes,activation,role="dominant",extra={})=>Object.freeze({axes:Object.freeze(axes),activation,role,...extra});
+  var SEQUENCE_PROFILES=Object.freeze({
+    "drift-maintain":sp(["survival","collection","exploration"],0,"dominant"),
+    "drift-long":sp(["exploration"],1,"dominant"),
+    "ambient-main-intro":sp(["exploration","relations"],2,"variation"),
+    "ambient-alt-intro":sp(["exploration"],1,"variation"),
+    "map-arrival-main":sp(["exploration"],3,"cue",{event:"map_discovery"}),
+    "map-arrival-alt":sp(["exploration"],2,"cue",{event:"map_discovery"}),
+    "map-arrival-evolution":sp(["exploration"],3,"cue",{event:"map_discovery"}),
+    "map-arrival-drift-evolve":sp(["exploration"],2,"cue",{event:"map_discovery"}),
+    "main-reference":sp(["exploration","relations"],2,"dominant"),
+    "relic-asymmetric":sp(["research"],1,"dominant"),
+    "relic-dev-bridge":sp(["research","relations"],3,"development"),
+    "relic-dev-direct":sp(["research","collection"],2,"development"),
+    "relic-dev-direct-alt":sp(["research"],2,"development"),
+    "relic-dev-bridge-alt":sp(["research","relations"],3,"development"),
+    "dynamics-rapid":sp(["survival","exploration"],3,"insert"),
+    "dynamics-long":sp(["survival","exploration"],4,"development"),
+    "dynamics-insert":sp(["exploration","collection","research"],4,"insert")
+  });
+
+  function scoreSequence(id,signal,recent){
+    var profile=SEQUENCE_PROFILES[id]||sp([],1),axis=signal?.axis||null,activation=Math.max(0,Math.min(5,Number(signal?.activation)||0));
+    var score=100-Math.abs(profile.activation-activation)*18;
+    if(axis&&profile.axes.includes(axis))score+=32;
+    if(signal?.event&&profile.event===signal.event)score+=45;
+    if((recent||[]).includes(id))score-=55;
+    return score;
+  }
 
   function clamp01(value) {
     var number = Number(value);
@@ -443,7 +475,9 @@
     transitions: TRANSITIONS,
     tracks: TRACKS,
     sequences: SEQUENCES,
+    sequenceProfiles: SEQUENCE_PROFILES,
     contextSequences: CONTEXT_SEQUENCES,
+    scoreSequence: scoreSequence,
     normalizeBAC: normalizeBAC,
     computeIntensity: computeIntensity,
     findTrack: findTrack,

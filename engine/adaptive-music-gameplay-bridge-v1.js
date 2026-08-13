@@ -2,8 +2,8 @@
 "use strict";
 const BF=global.BlueFox3D=global.BlueFox3D||{},music=BF.music,cat=BF.MusicCatalogV1||global.BlueFoxMusicCatalogV1;
 if(!music||!cat){console.warn("[BlueFox Music Bridge] moteur musical absent");return;}
-const VERSION="1.0.0",leases=new Map(),listeners=[],objectTimes=[];
-let current=null,timer=null,lastMission=null,lastReason="initialization";
+const VERSION="1.1.5",leases=new Map(),listeners=[],objectTimes=[];
+let current=null,timer=null,lastMission=null,lastReason="initialization",lastSignalKey=null;
 const now=()=>Date.now(),lower=v=>String(v||"").toLowerCase();
 const priorities={ambient:10,mission:40,interaction:55,action:75,danger:90,narrative:100};
 
@@ -26,7 +26,6 @@ function actionContext(action){
 }
 function baseline(){
  const engine=BF.currentEngine,action=lastMission?.currentAction?.type;
- if(engine?.transitioning)return{context:cat.contexts.EXPLORATION_SIGNIFICANT,priority:priorities.interaction,reason:"map-transition"};
  if(engine?.currentRoutine?.type){
   const context=actionContext(engine.currentRoutine.type);
   if(context)return{context,priority:priorities.mission,reason:"routine:"+engine.currentRoutine.type};
@@ -35,27 +34,44 @@ function baseline(){
  if(missionContext)return{context:missionContext,priority:priorities.mission,reason:"mission-action:"+action};
  return{context:cat.contexts.EXPLORATION_CALM,priority:priorities.ambient,reason:"ambient-exploration"};
 }
+function bacSignal(winner){
+ const d=BF.getBACDiagnostics?.()||BF.BAC?.getDiagnostics?.()||{},decision=d.lastDecision||{},survival=d.survival||BF.getSurvivalState?.()||{};
+ const axis=decision.axis||({research:"research",archaeology:"research",craft:"research",civilization:"relations",rest:"survival",danger:"survival"}[winner.context])||"exploration";
+ const recent=objectTimes.filter(at=>at>=now()-8000).length;
+ let activation=recent>=4?4:recent>=2?2:0;
+ if(Number(decision.at)>0&&now()-Number(decision.at)<45000)activation=Math.max(activation,1);
+ if(lastMission?.currentAction)activation=Math.max(activation,2);
+ if(winner.priority>=priorities.action)activation=Math.max(activation,4);
+ if(winner.priority>=priorities.danger||survival.needs?.criticalRest)activation=5;
+ const event=winner.context===cat.contexts.MAP_DISCOVERY?"map_discovery":null;
+ if(event==="map_discovery")activation=3;
+ return{axis,activation,event,decisionAt:Number(decision.at)||0};
+}
 function evaluate(){
+ if(BF.currentEngine?.transitioning)return;
  const winner=activeLeases()[0]||baseline(),key=winner.context+"|"+winner.priority;
- if(key===current)return;current=key;lastReason=winner.reason;
- music.setContext(winner.context,{priority:winner.priority,source:"gameplay-bridge",reason:winner.reason});
+ const signal=bacSignal(winner),signalKey=[signal.axis,signal.activation,signal.event,signal.decisionAt].join("|");
+ const contextChanged=key!==current,signalChanged=signalKey!==lastSignalKey;
+ if(!contextChanged&&!signalChanged)return;
+ if(signalChanged){lastSignalKey=signalKey;music.setMusicalState?.({...signal,defer:contextChanged});}
+ if(contextChanged){current=key;lastReason=winner.reason;music.setContext(winner.context,{priority:winner.priority,source:"gameplay-bridge",reason:winner.reason});}
  global.dispatchEvent?.(new CustomEvent("bluefox:music-context-resolved",{detail:{...winner,version:VERSION}}));
 }
 function tags(event){return[...(event.tags||[]),event.category,event.family,event.knowledgeFamily,event.objectId].map(lower).filter(Boolean);}
 function onObject(event){
  const e=event.detail||{},type=e.type,labels=tags(e);
  objectTimes.push(now());while(objectTimes.length&&objectTimes[0]<now()-8000)objectTimes.shift();
- if(type==="PHENOMENON_OBSERVED")lease("phenomenon",cat.contexts.EXPLORATION_SIGNIFICANT,65,70000,"phenomenon-observed");
- else if(type==="OBJECT_ANALYZED"||type==="KNOWLEDGE_ACQUIRED")lease("knowledge",cat.contexts.RESEARCH,priorities.interaction,80000,"knowledge-interaction");
- else if(["OBJECT_CRAFTED","OBJECT_BUILT","OBJECT_REPAIRED"].includes(type))lease("craft",cat.contexts.CRAFT,priorities.interaction,70000,"craft-interaction");
+ if(type==="PHENOMENON_OBSERVED")lease("phenomenon",cat.contexts.EXPLORATION_SIGNIFICANT,65,28000,"phenomenon-observed");
+ else if(type==="OBJECT_ANALYZED"||type==="KNOWLEDGE_ACQUIRED")lease("knowledge",cat.contexts.RESEARCH,priorities.interaction,32000,"knowledge-interaction");
+ else if(["OBJECT_CRAFTED","OBJECT_BUILT","OBJECT_REPAIRED"].includes(type))lease("craft",cat.contexts.CRAFT,priorities.interaction,30000,"craft-interaction");
  else if((type==="OBJECT_SEEN"||type==="OBJECT_INSPECTED")&&labels.some(v=>/ruin|relic|artefact|artifact|technology|ancient|civilization/.test(v)))
-  lease("archaeology",cat.contexts.ARCHAEOLOGY,priorities.interaction,80000,"archaeology-interaction");
- if(objectTimes.length>=4)lease("action-burst",cat.contexts.ACTION_DYNAMIC,priorities.action,55000,"rapid-actions");
+  lease("archaeology",cat.contexts.ARCHAEOLOGY,priorities.interaction,32000,"archaeology-interaction");
+ if(objectTimes.length>=4)lease("action-burst",cat.contexts.ACTION_DYNAMIC,priorities.action,22000,"rapid-actions");
 }
 function onMission(event){lastMission=event.detail||null;evaluate();}
 function onTransition(event){
  const detail=event.detail||{};
- lease("map-arrival",detail.isNew?cat.contexts.MAP_DISCOVERY:cat.contexts.EXPLORATION_CALM,detail.isNew?70:25,detail.isNew?42000:35000,detail.isNew?"new-map-discovery":"known-map");
+ lease("map-arrival",detail.isNew?cat.contexts.MAP_DISCOVERY:cat.contexts.EXPLORATION_SIGNIFICANT,detail.isNew?88:60,detail.isNew?24000:14000,detail.isNew?"new-map-discovery":"known-map-arrival");
 }
 function onMilestone(event){
  const d=event.detail||{},context=d.type==="expertise"?cat.contexts.RESEARCH:cat.contexts.EXPLORATION_SIGNIFICANT;
@@ -73,7 +89,7 @@ function onVisibility(){
 }
 on("bluefox:object-event",onObject);on("bluefox:mission-state",onMission);on("bluefox:map-transition-completed",onTransition);
 on("bluefox:map-milestone",onMilestone);on("bluefox:survival-changed",onSurvival);global.document?.addEventListener?.("visibilitychange",onVisibility);
-timer=global.setInterval(evaluate,1000);evaluate();
+timer=global.setInterval(evaluate,500);evaluate();
 
 BF.MusicGameplayBridge=Object.freeze({
  version:VERSION,priorities,
