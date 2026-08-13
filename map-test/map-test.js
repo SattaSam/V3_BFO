@@ -471,9 +471,10 @@ function registerSpawnedRecord(record) {
   }
 
   (record.instance?.colliders || []).forEach((collider) => {
-    record.root.updateWorldMatrix(true, false);
+    const transformRoot = record.objectRoot || record.root;
+    transformRoot.updateWorldMatrix(true, false);
     currentBuilt.colliders.push({
-      position: record.root.localToWorld(collider.offset.clone()),
+      position: transformRoot.localToWorld(collider.offset.clone()),
       radius: collider.radius,
       owner: record.root
     });

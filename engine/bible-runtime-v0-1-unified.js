@@ -914,9 +914,9 @@
         }
         if (record.instance?.hitbox) map.interactables.push(record.instance.hitbox);
         (record.instance?.colliders || []).forEach((collider) => {
-          const position = collider.offset.clone().applyAxisAngle(
-            new engine.THREE.Vector3(0, 1, 0), root.rotation.y
-          ).add(root.position);
+          const transformRoot = record.objectRoot || root;
+          transformRoot.updateWorldMatrix(true, false);
+          const position = transformRoot.localToWorld(collider.offset.clone());
           map.colliders.push({ position, radius: collider.radius, owner: root });
         });
       });

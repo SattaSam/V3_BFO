@@ -95,6 +95,124 @@
 
     spawnMicroScene(id, options = {}) {
       if (!BF.MicroScenes) throw new Error("ObjectSpawner nécessite MicroScenes.");
+      const template = BF.MicroScenes.get(id);
+
+      /*
+       * Contrat canonique des compositions CUO Lab.
+       *
+       * Une MSC personnalisée possède deux niveaux indépendants :
+       * - instanceRoot : ancrage global librement déplaçable par le jeu ;
+       * - objectPivot : transformation locale sauvegardée par CUO Lab.
+       *
+       * La racine fonctionnelle construite par ObjectLibrary reste neutre sous
+       * le pivot. Les runtimes peuvent ainsi l'animer sans écraser la pose
+       * enregistrée. Son échelle intrinsèque est volontairement conservée.
+       */
+      if (template?.custom) {
+        const targetScene = options.scene || this.scene;
+        const origin = options.origin || { x: 0, y: 0, z: 0 };
+        const instanceRotation = Array.isArray(options.rotation)
+          ? options.rotation
+          : [0, Number(options.rotation) || 0, 0];
+        const instanceRoot = new this.THREE.Group();
+        instanceRoot.name = `MSCInstance:${template.id}`;
+        instanceRoot.position.set(
+          Number(origin.x) || 0,
+          Number(origin.y) || 0,
+          Number(origin.z) || 0
+        );
+        instanceRoot.rotation.set(
+          Number(instanceRotation[0]) || 0,
+          Number(instanceRotation[1]) || 0,
+          Number(instanceRotation[2]) || 0
+        );
+        instanceRoot.userData.microSceneId = template.id;
+        instanceRoot.userData.microSceneInstance = true;
+        instanceRoot.userData.transformContract = "cuo-lab-canonical-v1";
+        targetScene?.add(instanceRoot);
+
+        const records = template.objects.map((entry, index) => {
+          const definition = BF.ObjectLibrary.get(entry.type);
+          if (!definition) throw new Error(`Objet inconnu : ${entry.type}`);
+
+          const instance = BF.ObjectLibrary.create(
+            this.THREE,
+            entry.type,
+            options.palette || this.palette,
+            entry.variant || 0
+          );
+          const objectRoot = instance.root;
+          const objectPivot = new this.THREE.Group();
+          const offset = entry.offset || [0, 0, 0];
+          const rotation = entry.rotation || [0, 0, 0];
+
+          objectPivot.name = `MSCObjectPivot:${template.id}:${index}`;
+          objectPivot.position.set(
+            Number(offset[0]) || 0,
+            Number(offset[1]) || 0,
+            Number(offset[2]) || 0
+          );
+          objectPivot.rotation.set(
+            Number(rotation[0]) || 0,
+            Number(rotation[1]) || 0,
+            Number(rotation[2]) || 0
+          );
+          objectPivot.userData.microSceneId = template.id;
+          objectPivot.userData.microSceneObjectIndex = index;
+          objectPivot.userData.microScenePivot = true;
+          objectPivot.userData.transformContract = "cuo-lab-canonical-v1";
+
+          if (objectRoot) {
+            objectRoot.position.set(0, 0, 0);
+            objectRoot.rotation.set(0, 0, 0);
+            if (options.scale != null) objectRoot.scale.setScalar(options.scale);
+            objectRoot.userData.spawnSource = options.source || template.id;
+            objectPivot.add(objectRoot);
+          }
+          instanceRoot.add(objectPivot);
+
+          const instanceId = options.instanceId
+            ? `${options.instanceId}:${index}`
+            : `${definition.id}:msc:${template.id}:${Date.now().toString(36)}:${(++this.instanceSequence).toString(36)}`;
+          const metadata = {
+            instanceId,
+            variant: entry.variant || 0,
+            catalogId: definition.id,
+            libraryType: entry.type,
+            functional: definition,
+            microSceneId: template.id,
+            microScenePivot: objectPivot
+          };
+          Object.assign(objectPivot.userData, metadata);
+          if (objectRoot) {
+            Object.assign(objectRoot.userData, metadata, {
+              specialRuntimeRoot: true
+            });
+          }
+          if (instance.hitbox) Object.assign(instance.hitbox.userData, metadata);
+
+          const record = {
+            type: entry.type,
+            definition,
+            instance,
+            instanceId,
+            root: objectPivot,
+            objectRoot,
+            pivot: objectPivot,
+            instanceRoot,
+            position: {
+              x: objectPivot.position.x,
+              y: objectPivot.position.y,
+              z: objectPivot.position.z
+            }
+          };
+          this.instances.push(record);
+          return record;
+        });
+
+        return records;
+      }
+
       const plan = BF.MicroScenes.plan(id, options.origin, options.rotation || 0);
       return plan.map((entry) => this.spawn(entry.type, {
         ...options,

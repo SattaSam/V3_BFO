@@ -57,19 +57,6 @@ window.BlueFoxCustomMaps = [
           2.356194,
           0
         ]
-      },
-      {
-        "id": "MSC-CUSTOM-CAMP-BASE",
-        "position": [
-          50.8834,
-          2.5,
-          -2.105
-        ],
-        "rotation": [
-          0,
-          -0.785398,
-          0
-        ]
       }
     ],
     "createdAt": "2026-08-02T18:14:19.1210335Z"
