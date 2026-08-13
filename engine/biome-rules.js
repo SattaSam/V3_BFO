@@ -495,7 +495,7 @@
    if(profile==="forest"){addOrRaise(dec,"tree",36);addOrRaise(dec,"fern",22);rocks=Math.min(rocks,5);}
    if(profile==="swamp"){addOrRaise(dec,"tree",18);addOrRaise(dec,"fern",24);addOrRaise(dec,"fog_bank",2);rocks=Math.min(rocks,4);}
    if(profile==="fungal"){addOrRaise(dec,"lantern_mushrooms",30);rocks=Math.min(rocks,5);}
-   if(fungalMushroomMap){addOrRaise(dec,"lantern_mushrooms",24);addOrRaise(dec,"giant_mushroom",6);rocks=Math.min(rocks,5);}
+   if(fungalMushroomMap){addOrRaise(dec,"lantern_mushrooms",20);addOrRaise(dec,"spore",26);addOrRaise(dec,"giant_mushroom",6);rocks=Math.min(rocks,5);}
    else if(swampMushroomMap)addOrRaise(dec,"giant_mushroom",3);
    if(profile==="frozen"){dec=dec.filter(([t])=>!["spore","lunar_vine","fern"].includes(t));addOrRaise(dec,"nature_tree",5);addOrRaise(dec,"strong_rock",9);}
    if(amberForest){addOrRaise(dec,"fossil_root_arch",8);addOrRaise(dec,"tree_fallen",10);addOrRaise(dec,"lantern_mushrooms",8);}

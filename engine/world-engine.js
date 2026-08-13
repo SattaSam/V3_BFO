@@ -2094,6 +2094,7 @@
       this.character.enabled = false;
       this.character.stop();
       this.transitionElement.classList.add("active");
+      const preservedCameraView = this.cameraController?.captureViewState?.() || null;
       try {
         await new Promise((resolve) => setTimeout(resolve, 340));
 
@@ -2127,7 +2128,9 @@
         this.savePosition();
 
         await new Promise((resolve) => setTimeout(resolve, 220));
-        this.cameraController.resetBehindCharacter(true);
+        if (!this.cameraController.restoreViewState(preservedCameraView)) {
+          this.cameraController.resetBehindCharacter(true);
+        }
         this.completedTransitions += 1;
         global.dispatchEvent(new CustomEvent("bluefox:map-transition-completed", {
           detail: {

@@ -122,12 +122,20 @@
     ];
     zoneStats.forEach((stat, zoneIndex) => {
       const center = zones[zoneIndex].center;
-      const keepTarget = Math.max(2, Math.round(stat.rocks.length * 0.58));
+      // Les gros blocs placés en lisière servent aussi de cache-couture.
+      const keepTarget = Math.max(2, Math.round(stat.rocks.length * 0.72));
       const ranked = [...stat.rocks].sort((a, b) => {
         const score = (record) => {
           const p = record.root.position;
           const distance = Math.hypot(p.x - center.x, p.z - center.z);
-          const edgeScore = distance >= 18 && distance <= 26 ? 3 : distance >= 14 ? 1 : -2;
+          const halfSize = Number(zones[zoneIndex].halfSize) || 27;
+          const edgeDistance = Math.min(
+            Math.abs(Math.abs(p.x - center.x) - halfSize),
+            Math.abs(Math.abs(p.z - center.z) - halfSize)
+          );
+          const edgeScore = edgeDistance <= 5.8
+            ? 5
+            : distance >= 18 && distance <= 26 ? 3 : distance >= 14 ? 1 : -2;
           const corridorPenalty = corridors.some(({ start, end }) => pointToSegmentSquared(start, end, p.x, p.z) < 12.25) ? -6 : 0;
           return edgeScore + corridorPenalty;
         };

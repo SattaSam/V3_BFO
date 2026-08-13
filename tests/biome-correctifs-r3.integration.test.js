@@ -143,7 +143,7 @@ test("les champignons géants restent réservés aux marais et forêts fongiques
       spawner.indexOf("let placedRocks = 0"),
     "les champignons identitaires doivent être placés avant le remplissage de la map"
   );
-  assert.match(spawner, /fungalMushroomMap \? 4 : 2/);
+  assert.match(spawner, /fungalMushroomMap \? Math\.max\(2, Math\.min\(6, plateauCount\)\) : 2/);
 });
 
 test("MAP_Test conserve un dosage CUSTOM effectif et une sauvegarde hors serveur", () => {
@@ -250,6 +250,51 @@ test("le correctif de proximité choisit réellement la cible la plus proche", (
   const far = { position: { x: 18 } };
   assert.equal(engine.pickNearestInteractable([far, near]), near);
   assert.equal(BF.NearestInteractionPolicy.version, "nearest-r3");
+});
+
+test("les chemins restent dégagés et les volumes rouges renforcent les coutures", () => {
+  const spawner = read("engine/object-spawner.js");
+  const hierarchy = read("engine/map-population-hierarchy.js");
+  assert.match(spawner, /large: \{ mapEdge: 0\.56, plateauEdge: 0\.36, center: 0\.08 \}/);
+  assert.match(spawner, /radius \+ 2\.65/);
+  assert.match(spawner, /seamJitter/);
+  assert.match(spawner, /plateauCount === 4 \|\| plateauCount === 6/);
+  assert.match(spawner, /Math\.abs\(x - mapCenter\.x\)/);
+  assert.match(spawner, /Math\.abs\(z - mapCenter\.z\)/);
+  assert.match(spawner, /isReserved\(x, z, radius, "rock"\)/);
+  assert.match(spawner, /isReserved\(x, z, radius, "giant_mushroom"\)/);
+  assert.match(spawner, /type === "lantern_mushrooms"/);
+  assert.match(spawner, /plateauCount \* 8/);
+  assert.match(spawner, /type === "spore"/);
+  assert.match(spawner, /plateauCount \* 14/);
+  assert.match(spawner, /Math\.max\(2, Math\.min\(6, plateauCount\)\)/);
+  assert.match(read("engine/biome-rules.js"), /addOrRaise\(dec,"spore",26\)/);
+  assert.match(hierarchy, /stat\.rocks\.length \* 0\.72/);
+  assert.match(hierarchy, /edgeDistance <= 5\.8/);
+});
+
+test("la caméra et le glissement de la carte Planète persistent pendant la partie", () => {
+  const camera = read("engine/camera-controller.js");
+  const world = read("engine/world-engine.js");
+  const planet = read("engine/ui-enhancements.js");
+  const css = read("engine/ui-enhancements.css");
+  const globeCss = read("engine/planet-globe-ui.css");
+  assert.match(camera, /captureViewState\(\)/);
+  assert.match(camera, /restoreViewState\(state\)/);
+  assert.match(world, /preservedCameraView/);
+  assert.match(world, /restoreViewState\(preservedCameraView\)/);
+  assert.match(planet, /PlanetMapViewState/);
+  assert.doesNotMatch(planet, /bluefox_planet_map_view_v1/);
+  assert.match(planet, /planet-map-marker \$\{type\}/);
+  assert.match(planet, /\["bluefox", "Position de BlueFox"\]/);
+  assert.match(planet, /\["camp", "Camp de base"\]/);
+  assert.doesNotMatch(planet, /dataset\.centeredMap/);
+  assert.match(css, /position: sticky;/);
+  assert.match(css, /margin-top: -54px;/);
+  assert.match(css, /bluefox-map-icon\.png/);
+  assert.match(globeCss, /align-self: start !important;/);
+  assert.match(globeCss, /margin-top: -54px !important;/);
+  assert.match(globeCss, /max-height: calc\(100vh - 12px\) !important;/);
 });
 
 test("le réglage de survie rembourse une partie du coût sans créer d'énergie", () => {

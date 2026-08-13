@@ -272,10 +272,18 @@
       const random = options.random || this.random;
       const next = () => typeof random === "function" ? random() : random.next();
       const { minX, maxX, minZ, maxZ } = bounds;
+      const plateauCount = BF.clamp(zoneRegions.length || 1, 1, 6);
+      const mapCenter = {
+        x: (minX + maxX) / 2,
+        z: (minZ + maxZ) / 2
+      };
       const occupied = [];
       const placementPreferences = {
-        large: { mapEdge: 0.68, plateauEdge: 0.20, center: 0.12 },
-        medium: { mapEdge: 0.48, plateauEdge: 0.30, center: 0.22 },
+        // Les volumes rouges structurent les lisières et masquent les raccords
+        // entre plateaux. Le centre reste volontairement dégagé afin que les
+        // chemins principaux restent immédiatement lisibles.
+        large: { mapEdge: 0.56, plateauEdge: 0.36, center: 0.08 },
+        medium: { mapEdge: 0.44, plateauEdge: 0.36, center: 0.20 },
         small: { mapEdge: 0.27, plateauEdge: 0.41, center: 0.32 }
       };
       const placement = (type) => BF.ObjectLibrary.getMapPlacement(type);
@@ -288,14 +296,25 @@
         ...Object.values(resolvedExits).map((exit) => ({ start: definition.entry, end: exit })),
         ...internalZonePaths
       ];
-      const isReserved = (x, z, radius) =>
-        reservedPoints.some((point) =>
+      const isReserved = (x, z, radius, type = "frond") => {
+        const objectPlacement = placement(type);
+        const blocksPrincipalAxis =
+          (plateauCount === 4 || plateauCount === 6) &&
+          (objectPlacement.volume === "large" || BF.ObjectLibrary.get(type)?.obstacle === true) &&
+          (
+            Math.abs(x - mapCenter.x) < radius + 3.6 ||
+            Math.abs(z - mapCenter.z) < radius + 3.6
+          );
+        return blocksPrincipalAxis || reservedPoints.some((point) =>
           Math.hypot(x - point.x, z - point.z) < radius + point.clearance
         ) ||
         protectedCorridors.some(({ start, end }) =>
           segmentDistanceSquared(start, end, x, z) <
-            (radius + 1.45) * (radius + 1.45)
+            // Couloir libre plus franc : les grands obstacles peuvent border
+            // le passage, jamais le rétrécir ou le couper.
+            (radius + 2.65) * (radius + 2.65)
         );
+      };
       const isOccupied = (x, z, radius) =>
         occupied.some((item) =>
           Math.hypot(x - item.x, z - item.z) < radius + item.radius + 0.28
@@ -348,6 +367,11 @@
             } else {
               x = region.center.x + halfPlateau - depth; z = region.center.z + along;
             }
+            if (volume === "large" || volume === "medium") {
+              const seamJitter = (next() - 0.5) * (volume === "large" ? 1.8 : 2.6);
+              if (side < 2) z += seamJitter;
+              else x += seamJitter;
+            }
           } else {
             const angle = next() * Math.PI * 2;
             const maxDistance = Math.min(maximumDistance, 25);
@@ -360,7 +384,7 @@
             x < minX + outerSafety || x > maxX - outerSafety ||
             z < minZ + outerSafety || z > maxZ - outerSafety
           ) continue;
-          if (!isReserved(x, z, radius) && !isOccupied(x, z, radius)) return { x, z };
+          if (!isReserved(x, z, radius, type) && !isOccupied(x, z, radius)) return { x, z };
         }
         return null;
       };
@@ -410,7 +434,6 @@
       const rockCluster = BF.MicroScenes.getMapCluster("rock");
       const resourceCluster = BF.MicroScenes.getMapCluster("resource");
       const ambientCluster = BF.MicroScenes.getMapCluster("ambient");
-      const plateauCount = BF.clamp(zoneRegions.length || 1, 1, 6);
       const mapBudget = MAP_OBJECT_BUDGETS[plateauCount];
       const lockedBudget = definition.populationBudget || {};
       const allowCustomRange = lockedBudget.allowCustomRange === true;
@@ -539,7 +562,7 @@
           const x = region.center.x + offsetX;
           const z = region.center.z + offsetZ;
           const radius = placement("giant_mushroom").radius;
-          if (isReserved(x, z, radius) || isOccupied(x, z, radius)) continue;
+          if (isReserved(x, z, radius, "giant_mushroom") || isOccupied(x, z, radius)) continue;
           const object = placeObject(
             "giant_mushroom",
             x,
@@ -589,7 +612,7 @@
           const x = center.x + Math.cos(angle) * distance;
           const z = center.z + Math.sin(angle) * distance;
           const radius = placement("rock").radius;
-          if (!isAnchor && (isReserved(x, z, radius) || isOccupied(x, z, radius))) continue;
+          if (!isAnchor && (isReserved(x, z, radius, "rock") || isOccupied(x, z, radius))) continue;
           const volumeRoll = next();
           const variant = isAnchor || volumeRoll < 0.75 ? 2 : volumeRoll < 0.93 ? 1 : 0;
           const object = placeObject("rock", x, z, variant, next() * Math.PI * 2);
@@ -635,7 +658,7 @@
           const x = center.x + Math.cos(angle) * distance;
           const z = center.z + Math.sin(angle) * distance;
           const radius = placement(memberKind).radius;
-          if (!isAnchor && (isReserved(x, z, radius) || isOccupied(x, z, radius))) continue;
+          if (!isAnchor && (isReserved(x, z, radius, memberKind) || isOccupied(x, z, radius))) continue;
           const object = placeObject(
             memberKind, x, z, (placedResources + member) % 3, next() * Math.PI * 2
           );
@@ -658,8 +681,12 @@
             decorationBudget * (Math.max(0, Number(count) || 0) / Math.max(1, decorationWeightTotal))
           ));
         allocatedDecorations += denseCount;
-        const targetCount = type === "giant_mushroom"
-          ? Math.max(0, Math.min(fungalMushroomMap ? 4 : 2, denseCount) - (placedTypeCounts.get(type) || 0))
+        const calculatedTargetCount = type === "giant_mushroom"
+          ? Math.max(
+              0,
+              Math.min(fungalMushroomMap ? Math.max(2, Math.min(6, plateauCount)) : 2, denseCount) -
+                (placedTypeCounts.get(type) || 0)
+            )
           : type === "electrostatic_storm"
           ? Math.min(6, denseCount)
           : type === "crystalline_tree" && magneticContext
@@ -669,6 +696,18 @@
               : type === "mobile_islet" && magneticContext
                 ? Math.min(magneticDesert ? 5 : 3, denseCount)
                 : denseCount;
+        // Sur une carte fongique, le poids décoratif ne doit jamais être pris
+        // pour un nombre illimité d'instances. Les lanternes restent présentes,
+        // mais les éventails à spores deviennent la couverture dominante.
+        const fungalTypeLimit = fungalMushroomMap && type === "lantern_mushrooms"
+          ? plateauCount * 8
+          : fungalMushroomMap && type === "spore"
+            ? plateauCount * 14
+            : Infinity;
+        const targetCount = Math.min(
+          calculatedTargetCount,
+          Math.max(0, fungalTypeLimit - (placedTypeCounts.get(type) || 0))
+        );
         let placed = 0;
         let guard = 0;
         while (placed < targetCount && guard < Math.max(5, targetCount * 5)) {
@@ -690,7 +729,7 @@
             const x = center.x + Math.cos(angle) * distance;
             const z = center.z + Math.sin(angle) * distance;
             const radius = placement(type).radius;
-            if (!isAnchor && (isReserved(x, z, radius) || isOccupied(x, z, radius))) continue;
+            if (!isAnchor && (isReserved(x, z, radius, type) || isOccupied(x, z, radius))) continue;
             const object = placeObject(
               type, x, z, (placed + familyIndex + member) % 3, next() * Math.PI * 2
             );
@@ -742,7 +781,13 @@
       if (glassSteppe || vitrifiedLand) ensureCount("crystalline_tree", 2 + (populationRoll >= 0.5 ? 1 : 0));
       if (magneticContext) ensureCount("crystalline_tree", 2 + Math.floor(populationRoll * 5));
       if (fungalMushroomMap || swampMushroomMap) {
-        ensureCount("giant_mushroom", fungalMushroomMap ? 2 : 1, 4, 24, 96);
+        ensureCount(
+          "giant_mushroom",
+          fungalMushroomMap ? Math.max(2, Math.min(6, plateauCount)) : 1,
+          4,
+          24,
+          96
+        );
       }
       const isletChance = magneticDesert ? 0.82 : 0.56;
       if (magneticContext && populationRoll < isletChance) {
