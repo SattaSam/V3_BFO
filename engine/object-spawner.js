@@ -413,14 +413,22 @@
       const plateauCount = BF.clamp(zoneRegions.length || 1, 1, 6);
       const mapBudget = MAP_OBJECT_BUDGETS[plateauCount];
       const lockedBudget = definition.populationBudget || {};
+      const allowCustomRange = lockedBudget.allowCustomRange === true;
       const targetObjectBudget = Number.isFinite(Number(lockedBudget.targetObjects))
-        ? BF.clamp(Math.round(Number(lockedBudget.targetObjects)), mapBudget.min, mapBudget.max)
+        ? BF.clamp(
+            Math.round(Number(lockedBudget.targetObjects)),
+            allowCustomRange ? 1 : mapBudget.min,
+            allowCustomRange ? mapBudget.max * 2 : mapBudget.max
+          )
         : Math.round(mapBudget.min + next() * (mapBudget.max - mapBudget.min));
       const resourceCount = Number.isFinite(Number(lockedBudget.resources))
         ? BF.clamp(
             Math.round(Number(lockedBudget.resources)),
-            mapBudget.resourcesMin,
-            Math.min(mapBudget.resourcesMax, targetObjectBudget)
+            allowCustomRange ? 0 : mapBudget.resourcesMin,
+            Math.min(
+              allowCustomRange ? targetObjectBudget : mapBudget.resourcesMax,
+              targetObjectBudget
+            )
           )
         : Math.round(
             mapBudget.resourcesMin +
@@ -430,7 +438,15 @@
         next() * (mapBudget.landmarksMax - mapBudget.landmarksMin + 1)
       );
       const landmarkTemplate = BF.MicroScenes.getMapLandmark(population.profileId);
-      const tutorialProtected = definition.isStartingMap || definition.startingMap || definition.id === "crystal" || Number(definition.number) === 1 || Number(definition.generator?.discoveryIndex) <= 2;
+      const mapNumber = Number(definition.number);
+      const discoveryIndex = Number(definition.generator?.discoveryIndex);
+      const tutorialProtected = Boolean(
+        definition.isStartingMap ||
+        definition.startingMap ||
+        definition.id === "crystal" ||
+        (Number.isFinite(mapNumber) && mapNumber >= 1 && mapNumber <= 3) ||
+        (Number.isFinite(discoveryIndex) && discoveryIndex >= 0 && discoveryIndex <= 2)
+      );
       const generatedSpecialScenes = definition.generated && !tutorialProtected
         ? (definition.generator?.microSceneIds || [])
           .map((id) => BF.MicroScenes.get(id))
@@ -453,6 +469,12 @@
       const magneticDesert = magneticContext && /desert/.test(generationContext);
       const glassSteppe = /steppe.*verre|verre.*steppe|glass.*steppe|steppe.*glass/.test(generationContext);
       const vitrifiedLand = /lande vitrifi|vitrified.*heath|vitrified/.test(generationContext);
+      const fungalMushroomMap =
+        definition.generator?.biomeId === "fungal" ||
+        /fong|fung|champignon|mushroom|spore/.test(generationContext);
+      const swampMushroomMap =
+        population.profileId === "swamp" ||
+        /marais|swamp/.test(generationContext);
       const populationRoll = (() => {
         const text = `${definition.id || ""}:${definition.seed || ""}:${definition.number || ""}`;
         let hash = 2166136261;
@@ -492,6 +514,39 @@
         0,
         targetObjectBudget - resourceCount - landmarkObjectBudget
       );
+
+      const guaranteeGiantMushrooms = () => {
+        const target = fungalMushroomMap ? 2 : swampMushroomMap ? 1 : 0;
+        if (!target) return 0;
+        const offsets = [
+          [-12, -10], [12, 10], [-13, 11], [13, -11],
+          [-8, 14], [8, -14], [-16, 3], [16, -3]
+        ];
+        let placed = 0;
+        for (let index = 0; index < offsets.length && placed < target; index += 1) {
+          const region = zoneRegions[index % Math.max(1, zoneRegions.length)] ||
+            { center: { x: 0, z: 0 } };
+          const [offsetX, offsetZ] = offsets[index];
+          const x = region.center.x + offsetX;
+          const z = region.center.z + offsetZ;
+          const radius = placement("giant_mushroom").radius;
+          if (isReserved(x, z, radius) || isOccupied(x, z, radius)) continue;
+          const object = placeObject(
+            "giant_mushroom",
+            x,
+            z,
+            placed % 3,
+            next() * Math.PI * 2
+          );
+          object.root.userData.biomeIdentity = fungalMushroomMap
+            ? "fungal-giant-mushroom"
+            : "swamp-giant-mushroom";
+          placed += 1;
+        }
+        return placed;
+      };
+      guaranteeGiantMushrooms();
+
       const mineralDensity = BF.clamp(population.rockCount / 18, 0.35, 1);
       // Les rochers restent structurants sans absorber la majorité du budget
       // décoratif sur les grandes cartes.
@@ -665,9 +720,9 @@
         if (candidates.length) spawnPreservedCustomScene(candidates[Math.floor(next() * candidates.length)], 7);
       }
 
-      const ensureCount = (type, target, minDistance = 5, maxDistance = 22) => {
+      const ensureCount = (type, target, minDistance = 5, maxDistance = 22, guardMultiplier = 16) => {
         let guard = 0;
-        while ((placedTypeCounts.get(type) || 0) < target && guard < target * 16) {
+        while ((placedTypeCounts.get(type) || 0) < target && guard < target * guardMultiplier) {
           guard += 1;
           const center = randomPosition(minDistance, maxDistance, placement(type).radius, type);
           if (center) placeObject(type, center.x, center.z, guard % 3, next() * Math.PI * 2);
@@ -675,6 +730,9 @@
       };
       if (glassSteppe || vitrifiedLand) ensureCount("crystalline_tree", 2 + (populationRoll >= 0.5 ? 1 : 0));
       if (magneticContext) ensureCount("crystalline_tree", 2 + Math.floor(populationRoll * 5));
+      if (fungalMushroomMap || swampMushroomMap) {
+        ensureCount("giant_mushroom", fungalMushroomMap ? 2 : 1, 4, 24, 96);
+      }
       const isletChance = magneticDesert ? 0.82 : 0.56;
       if (magneticContext && populationRoll < isletChance) {
         const range = magneticDesert ? 4 : 3;
