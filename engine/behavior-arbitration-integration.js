@@ -948,7 +948,12 @@
     }
     const originalAutonomy = engine.updateAutonomy.bind(engine);
     engine.updateAutonomy = function updateAutonomyWithBAC(now) {
-      if (this.transitioning || this.pendingInteraction || this.pendingGate || this.pendingZoneExploration || this.currentRoutine || this.missionManager?.currentAction) return;
+      if (this.transitioning || this.pendingInteraction || this.pendingGate || this.pendingZoneExploration || this.currentRoutine || this.missionManager?.currentAction) {
+        if (this.persistentNavigationIntent && !this.transitioning && !this.pendingInteraction && !this.currentRoutine && !this.missionManager?.currentAction) {
+          this.resumePersistentNavigation?.();
+        }
+        return;
+      }
       if (now < this.postActionRecoveryUntil || now - this.lastAutonomyAt < 5000) return;
       if (this.character.root.position.distanceTo(this.character.target) > 0.2) return;
       const survival = BF.getSurvivalState?.() || {};
@@ -1076,7 +1081,7 @@
             this.pendingGate = gate;
             this.character.setTarget(gate.position);
             this.callbacks.onStatus(
-              `BlueFox choisit de poursuivre son exploration vers ${BF.maps[gate.userData.exit.targetMap].name}.`
+              `BlueFox choisit de poursuivre son exploration vers ${this.narrativeMapName?.(gate.userData.exit.targetMap) || BF.maps[gate.userData.exit.targetMap].name}.`
             );
           }
         },
@@ -1143,7 +1148,7 @@
             return;
           }
 
-          if (recentlyInterruptedByPlayer) {
+          if (recentlyInterruptedByPlayer && !this.persistentNavigationIntent) {
             this.pendingGate = null;
             this.character.stop?.();
             this.character.setTarget?.(this.character.root.position);

@@ -166,8 +166,14 @@
       z: record.root?.position.z ?? record.position.z,
       radius: BF.ObjectLibrary.getMapPlacement(record.type)?.radius || 1
     }));
+    const protectedPoints = [
+      options.definition?.entry,
+      ...Object.values(options.resolvedExits || {})
+    ].filter(Boolean);
     const isFree = (x, z, radius) => !occupied.some((item) =>
       Math.hypot(x - item.x, z - item.z) < radius + item.radius + 0.55
+    ) && !protectedPoints.some((point) =>
+      Math.hypot(x - point.x, z - point.z) < radius + 4.2
     ) && !corridors.some(({ start, end }) => pointToSegmentSquared(start, end, x, z) < (radius + 1.8) ** 2);
 
     const findZoneEdgeOrigin = (zone, radius) => {
@@ -180,6 +186,68 @@
       }
       return null;
     };
+
+    const featuredSceneIds = Array.isArray(options.definition?.generator?.featuredMicroSceneIds)
+      ? options.definition.generator.featuredMicroSceneIds.filter(Boolean)
+      : [];
+    const guaranteedSceneIds = [...featuredSceneIds];
+    const biomeId = options.definition?.generator?.biomeId;
+    if (["magnetic", "floating_islands"].includes(biomeId) &&
+        !guaranteedSceneIds.includes("MSC-SUSPENDED-ISLAND-001")) {
+      guaranteedSceneIds.unshift("MSC-SUSPENDED-ISLAND-001");
+    }
+    if (biomeId === "aquatic") {
+      const context = String([
+        options.definition?.name,
+        options.definition?.description,
+        ...(options.definition?.traits || []).map((trait) => trait?.label || trait?.id || "")
+      ].join(" ")).toLocaleLowerCase("fr");
+      if (/sous.?marin|underwater|ocean/.test(context)) {
+        [
+          "MSC-CUSTOM-CORAILBIOLUMINESCENT1",
+          "MSC-CUSTOM-CORAILBIOLUMINESCENT2",
+          "MSC-CUSTOM-CORAILBIOLUMINESCENT3"
+        ].forEach((id) => { if (!guaranteedSceneIds.includes(id)) guaranteedSceneIds.push(id); });
+      }
+    }
+    guaranteedSceneIds.slice(0, Math.max(1, Math.min(zones.length, 3))).forEach((sceneId, index) => {
+      const scene = BF.MicroScenes?.get?.(sceneId);
+      const zone = zones[index % zones.length];
+      if (!scene || !zone) return;
+      const origin = findZoneEdgeOrigin(zone, Math.min(scene.radius || 6, 11));
+      if (!origin) return;
+      try {
+        const records = this.spawnMicroScene(scene.id, {
+          origin,
+          rotation: random() * Math.PI * 2,
+          force: true,
+          scene: options.group || this.scene,
+          palette: options.definition.palette,
+          source: `featured-microscene:${scene.id}`
+        }) || [];
+        records.forEach((record) => {
+          const root = record.instanceRoot || record.root;
+          if (root?.userData) {
+            root.userData.microScene = scene.id;
+            root.userData.outsideObjectBudget = true;
+          }
+          const hitbox = record.instance?.hitbox;
+          if (hitbox && !options.interactables?.includes(hitbox)) options.interactables?.push(hitbox);
+          (record.instance?.colliders || []).forEach((collider) => {
+            const owner = record.objectRoot || record.root;
+            const world = new this.THREE.Vector3();
+            owner?.getWorldPosition?.(world);
+            const position = collider.offset?.clone?.().add(world) || world;
+            if (!protectedPoints.some((point) =>
+              Math.hypot(position.x - point.x, position.z - point.z) < collider.radius + 4.2
+            )) options.colliders?.push({ position, radius: collider.radius, owner });
+          });
+        });
+        zoneStats[index % zones.length].scenes += 1;
+      } catch (error) {
+        console.warn(`MSC featured impossible: ${scene.id}`, error);
+      }
+    });
 
     zones.forEach((zone, zoneIndex) => {
       let previousSceneId = "";

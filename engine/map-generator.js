@@ -248,7 +248,7 @@
 
   const chooseScene = (random, biomeId, kind) => {
     const compatible = BF.MicroScenes?.list?.(biomeId)
-      ?.filter((scene) => !scene.custom && !scene.missionOnly) || [];
+      ?.filter((scene) => !scene.missionOnly) || [];
     const missionKeys = new Set([
       "MSC-ABANDONED-DRONE-001", "MSC-TECH-RELAY-001",
       "MSC-ANCIENT-GATEWAY-001", "MSC-RUINED-SHRINE-001",
@@ -256,13 +256,20 @@
     ]);
     const candidates = compatible.filter((scene) => {
       if (kind === "mission") return missionKeys.has(scene.id);
-      if (kind === "remarkable") return ["rare", "story"].includes(scene.rarity);
+      if (kind === "remarkable") return scene.custom === true || ["rare", "story"].includes(scene.rarity);
       return ["common", "uncommon"].includes(scene.rarity);
     });
     if (kind === "mission" && !candidates.length) return null;
     const pool = candidates.length ? candidates : compatible;
     return pool.length ? pool[random.integer(pool.length)] : null;
   };
+
+  const isWetOrAerialBiome = (id) => ["aquatic", "floating_islands"].includes(id);
+
+  const wetAerialSince = (definitions) => discoveriesSince(
+    definitions,
+    (definition) => isWetOrAerialBiome(definition.generator?.biomeId)
+  );
 
   const generate = (options = {}) => {
     const rules = BF.MapGenerationRules;
@@ -285,6 +292,7 @@
     const sinceRemarkable = discoveriesSince(existing, (definition) =>
       definition.generator?.cadence?.remarkableGuaranteed === true
     );
+    const sinceWetAerial = wetAerialSince(existing);
     const previousOrdinal = existing.reduce((maximum, definition) =>
       Math.max(maximum, Number(definition?.generator?.ordinal) || 0), 0
     );
@@ -301,10 +309,13 @@
       cadenceRules.remarkableSceneInterval
     );
     const forceRare = eligible && sinceRare + 1 >= rareInterval;
+    const forceWetAerial = eligible && sinceWetAerial + 1 >= 7;
     const weights = Object.fromEntries(rules.biomes.map((biome) => {
-      let weight = forceRare
-        ? (rareIds.has(biome.id) ? biome.weight : 0)
-        : biome.weight;
+      let weight = forceWetAerial
+        ? (isWetOrAerialBiome(biome.id) ? Math.max(biome.weight, biome.id === "aquatic" ? 10 : 6) : 0)
+        : forceRare
+          ? (rareIds.has(biome.id) ? biome.weight : 0)
+          : biome.weight;
       if (options.direction === "north" && biome.id === "frozen") {
         weight *= cadenceRules.northernFrozenMultiplier;
       }
@@ -326,6 +337,12 @@
     };
     if (forceDecorative) appendScene("decorative");
     if (forceRemarkable) appendScene("remarkable");
+    if (["magnetic", "floating_islands"].includes(biomeDefinition.id)) {
+      const suspended = BF.MicroScenes?.get?.("MSC-SUSPENDED-ISLAND-001");
+      if (suspended && !featuredScenes.some((entry) => entry.scene.id === suspended.id)) {
+        featuredScenes.push({ kind: "biome-guaranteed", scene: suspended });
+      }
+    }
     if (!featuredScenes.length && preferMissionOpportunity) appendScene("mission");
     const template = pickTemplate(random, biomeDefinition.id, draft.profile);
     if (!template) throw new Error("Aucun décor local compatible avec le générateur.");
@@ -371,6 +388,8 @@
         featuredMicroSceneIds: featuredScenes.map((entry) => entry.scene.id),
         cadence: {
           rareBiomeForced: forceRare,
+          wetAerialForced: forceWetAerial,
+          discoveriesSinceWetAerialBeforeGeneration: sinceWetAerial,
           rareBiomeInterval: rareInterval,
           decorativeGuaranteed: featuredScenes.some((entry) => entry.kind === "decorative"),
           decorativeInterval,

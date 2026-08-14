@@ -104,10 +104,10 @@ const patch=(def,pop)=>{
  }
  if(tropicalCoast){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"bush",14);addOrRaise(dec,"luminescent_tree",10);addOrRaise(dec,"crystalline_tree",4);}
  if(pebbleCoast){addOrRaise(dec,"nature_tree",12);const pool=dec.find(e=>e[0]==="pool");if(pool)pool[1]=Math.min(pool[1],3);}
- if(underwater){addOrRaise(dec,"lunar_vine",15);addOrRaise(dec,"lantern_mushrooms",12);addOrRaise(dec,"arch",1);rocks=Math.max(rocks,9);}
+ if(underwater){addOrRaise(dec,"lunar_vine",18);addOrRaise(dec,"lantern_mushrooms",15);addOrRaise(dec,"frond",14);addOrRaise(dec,"arch",2);rocks=Math.max(rocks,9);}
  if(profile==="archipelago"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",9);}
  if(floating||profile==="atypical"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",7);addOrRaise(dec,"fog_bank",2);}
- if(isletMap&&(!magneticWorld||magneticRoll<.58))addOrRaise(dec,"mobile_islet",7);
+ if(isletMap&&!tutorial)addOrRaise(dec,"mobile_islet",9);
  else dec=dec.filter(([t])=>t!=="mobile_islet");
  if(SPECIAL.has(profile))rw=rw.map(e=>({...e,weight:(RARE_MINERALS.has(e.family)||["magnetic_ore","logic_prism","pulse_core","memory_capsule"].includes(e.family))?e.weight*1.35:e.weight}));
  if(!NATURE.has(profile)&&!SPECIAL.has(profile)){rw=rw.filter(e=>!RARE_PLANTS.has(e.family));dec=dec.filter(([t])=>!RARE_PLANTS.has(t));}
