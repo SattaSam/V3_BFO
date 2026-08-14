@@ -11,7 +11,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var VERSION = "1.2.1";
+  var VERSION = "1.3.0";
 
   var CONTEXTS = Object.freeze({
     EXPLORATION_CALM: "exploration_calm",
@@ -219,9 +219,13 @@
   var TRANSITIONS = Object.freeze({
     standardCrossfadeSec: 4,
     urgentCrossfadeSec: 1.5,
-    minimumListenSec: 20,
+    minimumListenSec: 90,
+    preferredDevelopmentSec: 150,
+    maximumPendingSec: 210,
     maxConsecutiveLoopRepeats: 3,
     recentTrackHistorySize: 3,
+    cueGlobalCooldownMs: 8000,
+    cueFamilyCooldownMs: 12000,
     preserveIntroUnlessPriorityAtLeast: 90,
     priorities: Object.freeze({
       ambient: 10,
@@ -235,12 +239,53 @@
 
   const tr=(id,title,family,file,contexts,segments,extra={})=>Object.freeze({id,title,family,file,contexts:Object.freeze(contexts),segments:Object.freeze(segments.map(Object.freeze)),...extra});
   const sg=(id,role,startSec,endSec,fadeSec,extra={})=>({id,role,startSec,endSec,fadeSec,...extra});
+  const cue=(id,family,files,gain=.72,extra={})=>Object.freeze({id,family,files:Object.freeze(files),gain,...extra});
+  var CUES = Object.freeze({
+    "collection.plant":cue("collection.plant","collection",[
+      "audio/music/cues/drift_note_A_5-5s.mp3",
+      "audio/music/cues/drift_note_B_11-1s.mp3"
+    ],.68),
+    "collection.mineral":cue("collection.mineral","collection",[
+      "audio/music/cues/drift_note_D2_18-3s.mp3",
+      "audio/music/cues/drift_note_E2_21-2s.mp3"
+    ],.72),
+    "collection.generic":cue("collection.generic","collection",[
+      "audio/music/cues/drift_note_C_16-8s.mp3"
+    ],.68),
+    "observation.quiet":cue("observation.quiet","observation",[
+      "audio/music/cues/quiet_note_A_5-2s.mp3"
+    ],.58),
+    "curiosity.subtle":cue("curiosity.subtle","observation",[
+      "audio/music/cues/plante_A_drift_13-7s.mp3"
+    ],.58),
+    "relic.detected":cue("relic.detected","relic",[
+      "audio/music/cues/relique_C_evolution_35-7s.mp3"
+    ],.66),
+    "relic.active":cue("relic.active","relic",[
+      "audio/music/cues/relique_A_developpement_19-2s.mp3"
+    ],.72),
+    "relic.intermediate":cue("relic.intermediate","relic",[
+      "audio/music/cues/relique_A_descente_intermediaire.mp3"
+    ],.64),
+    "research.notes":cue("research.notes","research",[
+      "audio/music/cues/relic_note_E_development_42-3s.mp3"
+    ],.67),
+    "research.complete":cue("research.complete","research",[
+      "audio/music/cues/relic_note_D_research_60-2s.mp3"
+    ],.69),
+    "civilization.major":cue("civilization.major","relic",[
+      "audio/music/cues/relic_note_F_civilization_19-7s.mp3"
+    ],.72,{cooldownMs:18000}),
+    "dynamic.priority":cue("dynamic.priority","dynamic",[
+      "audio/music/cues/mission_C_dynamics_125-2s.mp3"
+    ],.78,{cooldownMs:18000})
+  });
   var TRACKS = Object.freeze([
     tr("drift.quiet","Quiet World","drift","audio/music/BF_DRIFT_01_Quiet_World.mp3",[CONTEXTS.EXPLORATION_CALM,CONTEXTS.CONTEMPLATION,CONTEXTS.CAMP,CONTEXTS.REST],[sg("loop-a","loop",12,48,6.5,{loopable:true}),sg("return-a","loop",18,50,6.5,{loopable:true})]),
     tr("drift.exploration","Exploration Evolve","drift","audio/music/BF_DRIFT_04_Exploration_Evolve.mp3",[CONTEXTS.EXPLORATION_CALM,CONTEXTS.EXPLORATION_SIGNIFICANT],[sg("loop-b","loop",4,42,3.8,{loopable:true})]),
-    tr("drift.alt","Drift Alt Evolution","drift","audio/music/BF_DRIFT_ALT_EVOLUTION_COMPLETE_00-179.mp3",[CONTEXTS.EXPLORATION_CALM,CONTEXTS.CONTEMPLATION,CONTEXTS.MAP_DISCOVERY],[sg("intro","intro",0,45,5,{protected:true}),sg("loop-c","development",28,82,5.5)]),
+    tr("drift.alt","Drift Alt Evolution","drift","audio/music/BF_DRIFT_ALT_EVOLUTION_COMPLETE_00-179.mp3",[CONTEXTS.EXPLORATION_CALM,CONTEXTS.CONTEMPLATION,CONTEXTS.MAP_DISCOVERY],[sg("intro","intro",0,45,5,{protected:true}),sg("loop-c","development",28,82,5.5),sg("evolution-full","development",0,179,6,{protected:true}),sg("entry-28","development",28,179,6,{protected:true}),sg("entry-82","development",82,179,6,{protected:true})]),
     tr("main.intro","Main Intro Evolution","main","audio/music/BF_MAIN_INTRO_EVOLUTION_00-44.5.mp3",[CONTEXTS.EXPLORATION_SIGNIFICANT,CONTEXTS.MAP_DISCOVERY,CONTEXTS.NARRATIVE_MILESTONE],[sg("intro","intro",0,44.5,3,{protected:true})]),
-    tr("main.evolution","Main Evolution","main","audio/music/BF_MAIN_EVOLUTION_120-299.mp3",[CONTEXTS.EXPLORATION_SIGNIFICANT,CONTEXTS.NARRATIVE_MILESTONE,CONTEXTS.CAMP],[sg("loop-a","loop",18,64,3,{loopable:true})]),
+    tr("main.evolution","Main Evolution","main","audio/music/BF_MAIN_EVOLUTION_120-299.mp3",[CONTEXTS.EXPLORATION_SIGNIFICANT,CONTEXTS.NARRATIVE_MILESTONE,CONTEXTS.CAMP],[sg("loop-a","loop",18,64,3,{loopable:true}),sg("evolution-full","development",0,179,5.5,{protected:true}),sg("return-18","development",18,179,5.5,{protected:true})]),
     tr("relic.research","Research Archaeology","relic","audio/music/BF_RELIC_02_Research_Archaeology.mp3",[CONTEXTS.RESEARCH,CONTEXTS.ARCHAEOLOGY,CONTEXTS.CRAFT],[sg("intro","intro",0,40,7,{gain:.78}),sg("loop-a","loop",24,66,4.5,{loopable:true}),sg("bridge","bridge",8,28,3.5),sg("return-24","loop",24,58,2.8,{loopable:true}),sg("return-28","loop",28,60,2.6,{loopable:true})]),
     tr("relic.civilization","Civilization Contact","relic","audio/music/BF_RELIC_03_Civilization_Contact.mp3",[CONTEXTS.CIVILIZATION,CONTEXTS.RESEARCH],[sg("bridge-short","bridge",2,17,.35)]),
     tr("relic.development","Relic Development","relic","audio/music/BF_RELIC_DEVELOPPEMENT_00-165.mp3",[CONTEXTS.RESEARCH,CONTEXTS.ARCHAEOLOGY,CONTEXTS.CRAFT,CONTEXTS.CIVILIZATION],[sg("dev-56","development",18,74,2.2),sg("dev-62","development",18,80,2.8),sg("dev-59","development",18,77,2.6)]),
@@ -255,14 +300,18 @@
   const step=(track,segment)=>Object.freeze({track,segment});
   var SEQUENCES=Object.freeze({
     "drift-maintain":Object.freeze([step("drift.quiet","loop-a")]),
-    "drift-long":Object.freeze([step("drift.alt","intro"),step("drift.exploration","loop-b"),step("drift.alt","loop-c"),step("main.intro","intro")]),
+    "drift-long":Object.freeze([step("drift.alt","evolution-full")]),
+    "drift-long-entry-28":Object.freeze([step("drift.alt","entry-28")]),
+    "drift-long-entry-82":Object.freeze([step("drift.alt","entry-82")]),
     "ambient-main-intro":Object.freeze([step("main.intro","intro"),step("drift.alt","intro"),step("drift.exploration","loop-b")]),
     "ambient-alt-intro":Object.freeze([step("drift.alt","intro"),step("drift.alt","loop-c"),step("main.intro","intro")]),
     "map-arrival-main":Object.freeze([step("main.intro","intro")]),
     "map-arrival-alt":Object.freeze([step("drift.alt","intro")]),
     "map-arrival-evolution":Object.freeze([step("main.evolution","loop-a")]),
     "map-arrival-drift-evolve":Object.freeze([step("drift.exploration","loop-b")]),
-    "main-reference":Object.freeze([step("main.intro","intro"),step("main.evolution","loop-a")]),
+    "main-reference":Object.freeze([step("main.intro","intro"),step("main.evolution","return-18")]),
+    "main-reference-return":Object.freeze([step("main.evolution","return-18")]),
+    "main-evolution-full":Object.freeze([step("main.evolution","evolution-full")]),
     "relic-asymmetric":Object.freeze([step("relic.research","intro"),step("relic.research","loop-a"),step("relic.research","bridge"),step("relic.research","loop-a")]),
     "relic-dev-bridge":Object.freeze([step("relic.research","bridge"),step("relic.development","dev-56"),step("relic.civilization","bridge-short"),step("relic.research","return-28")]),
     "relic-dev-direct":Object.freeze([step("relic.research","bridge"),step("relic.development","dev-62"),step("relic.research","return-24")]),
@@ -273,8 +322,8 @@
     "dynamics-insert":Object.freeze([step("dynamics.rapid","loop-long"),step("dynamics.action","insert"),step("dynamics.rapid","loop-long")])
   });
   var CONTEXT_SEQUENCES=Object.freeze({
-    exploration_calm:Object.freeze(["ambient-main-intro","ambient-alt-intro","drift-long","drift-maintain"]),map_discovery:Object.freeze(["map-arrival-main","map-arrival-alt","map-arrival-evolution","map-arrival-drift-evolve"]),contemplation:Object.freeze(["drift-long","ambient-alt-intro","drift-maintain"]),rest:Object.freeze(["drift-maintain"]),camp:Object.freeze(["drift-maintain","main-reference"]),
-    exploration_significant:Object.freeze(["main-reference","ambient-alt-intro","drift-long"]),narrative_milestone:Object.freeze(["main-reference"]),research:Object.freeze(["relic-dev-direct","relic-dev-bridge","relic-dev-direct-alt","relic-dev-bridge-alt","relic-asymmetric"]),
+    exploration_calm:Object.freeze(["drift-long","drift-long-entry-28","drift-long-entry-82","drift-maintain"]),map_discovery:Object.freeze(["map-arrival-main","map-arrival-alt","map-arrival-evolution","map-arrival-drift-evolve"]),contemplation:Object.freeze(["drift-long","drift-long-entry-28","drift-long-entry-82","drift-maintain"]),rest:Object.freeze(["drift-maintain","drift-long-entry-82"]),camp:Object.freeze(["drift-maintain","main-reference-return","main-evolution-full"]),
+    exploration_significant:Object.freeze(["main-reference","main-reference-return","main-evolution-full","drift-long-entry-28"]),narrative_milestone:Object.freeze(["main-reference","main-reference-return","main-evolution-full"]),research:Object.freeze(["relic-dev-direct","relic-dev-bridge","relic-dev-direct-alt","relic-dev-bridge-alt","relic-asymmetric"]),
     archaeology:Object.freeze(["relic-dev-bridge","relic-dev-direct-alt","relic-asymmetric"]),craft:Object.freeze(["relic-dev-direct","relic-dev-direct-alt","relic-asymmetric"]),civilization:Object.freeze(["relic-dev-bridge","main-reference"]),
     action_dynamic:Object.freeze(["dynamics-rapid","dynamics-long","dynamics-insert"]),danger:Object.freeze(["dynamics-rapid","dynamics-long"])
   });
@@ -283,6 +332,8 @@
   var SEQUENCE_PROFILES=Object.freeze({
     "drift-maintain":sp(["survival","collection","exploration"],0,"dominant"),
     "drift-long":sp(["exploration"],1,"dominant"),
+    "drift-long-entry-28":sp(["exploration","collection"],1,"dominant"),
+    "drift-long-entry-82":sp(["exploration","survival"],0,"dominant"),
     "ambient-main-intro":sp(["exploration","relations"],2,"variation"),
     "ambient-alt-intro":sp(["exploration"],1,"variation"),
     "map-arrival-main":sp(["exploration"],3,"cue",{event:"map_discovery"}),
@@ -290,6 +341,8 @@
     "map-arrival-evolution":sp(["exploration"],3,"cue",{event:"map_discovery"}),
     "map-arrival-drift-evolve":sp(["exploration"],2,"cue",{event:"map_discovery"}),
     "main-reference":sp(["exploration","relations"],2,"dominant"),
+    "main-reference-return":sp(["exploration","relations"],2,"dominant"),
+    "main-evolution-full":sp(["exploration","relations"],3,"development"),
     "relic-asymmetric":sp(["research"],1,"dominant"),
     "relic-dev-bridge":sp(["research","relations"],3,"development"),
     "relic-dev-direct":sp(["research","collection"],2,"development"),
@@ -473,6 +526,7 @@
     families: FAMILY_PROFILES,
     contextProfiles: CONTEXT_PROFILES,
     transitions: TRANSITIONS,
+    cues: CUES,
     tracks: TRACKS,
     sequences: SEQUENCES,
     sequenceProfiles: SEQUENCE_PROFILES,

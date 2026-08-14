@@ -1,6 +1,6 @@
 # BlueFox Odyssey — Architecture technique
 
-Référence : **V0.16.20 + cumulatif Missions V17 validé en jeu — 9 août 2026**
+Référence : **commit `a0ca8dc9664966f5b9ffcc7a5e80c2c03af286d2` — 14 août 2026**
 
 ## Démarrage
 
@@ -55,6 +55,10 @@ Les quatre modules du catalogue doivent exister et être chargés avant
 | Afficher et manipuler la carte Planète | `engine/ui-enhancements.js` et `engine/ui-enhancements.css` |
 | Définir les pondérations de génération | `engine/map-generation-rules.js` |
 | Générer et restaurer les définitions procédurales | `engine/map-generator.js` |
+| Définir pistes, segments, séquences et profils musicaux | `data/music-catalog.js` |
+| Lire, enchaîner et fondre les segments musicaux | `engine/adaptive-music-engine-v1.js` |
+| Traduire gameplay, missions, survie et BAC en contexte musical | `engine/adaptive-music-gameplay-bridge-v1.js` |
+| Afficher et persister la commande musique | `engine/adaptive-music-ui-v1.js` |
 
 ## Discipline des hotfixes cumulatifs
 
@@ -109,6 +113,17 @@ ObjectLibrary + BiomeRules + MicroScenes
 
 `MapRegistry` fournit le contexte de Map ; il ne décide plus quels objets
 générer.
+
+## Contrat des micro-scènes CUSTOM
+
+- CUO Lab enregistre les transformations locales X/Y/Z, rotations, hauteurs et variantes.
+- Le registre canonique de production est `data/custom-micro-scenes.json`, projeté dans `data/custom-micro-scenes.js`.
+- CUO Lab, MAP_Test et le jeu doivent interpréter ces données sans correction locale divergente.
+- `ObjectSpawner` choisit uniquement l'origine et la rotation globale d'une instance ; il ne réécrit pas les pivots internes.
+- Plusieurs instances d'une même MSC peuvent être placées à des ancrages différents.
+- Les fichiers maîtres individuels sont conservés dans `assets/MSC_saves/`.
+
+Pour les mondes sous-marins bioluminescents, une des trois MSC coralliennes est choisie de façon déterministe et son coût est retranché du budget décoratif. Les arches droites isolées sont retirées de la population aquatique. Les rochers blanchis ne peuvent être déclenchés que par une identité structurée explicitement glacée ; une simple mention dans une description ne suffit pas.
 
 ## Source unique de Zone
 
@@ -170,6 +185,28 @@ reçoivent aucun repli étranger.
 - Root motion neutralisé dans les animations GLB.
 - Distance caméra connue : 4,5 à 34 unités.
 - Cyclorama incurvé, bord inférieur proche du plateau et défilement doux.
+- Réglages caméra persistants entre les changements de map.
+- Carte Planète centrée automatiquement sur BlueFox uniquement à la première ouverture d'une partie ; position et zoom utilisateur conservés ensuite.
+
+## Musique adaptative
+
+Chaîne autoritaire :
+
+```text
+événements jeu + mission + survie + activité récente
+                         ↓
+       AdaptiveMusicGameplayBridge (contexte/priorité)
+                         ↓
+               état réel du BAC (modulation)
+                         ↓
+       MusicCatalog (séquence/segment compatible)
+                         ↓
+       AdaptiveMusicEngine (double deck/crossfade)
+```
+
+Le pont ne change pas de thème après chaque objet. Il attend trois actions similaires ou une dominance supérieure à 50 % sur au moins six actions dans une fenêtre de cinq minutes. Une entrée de map pose un contexte temporaire distinct, puis rend la main à l'activité dominante. Le chargement d'une map reste prioritaire : aucun traitement audio ne doit bloquer le pipeline 3D.
+
+Les axes et émotions musicaux doivent provenir des diagnostics réels du BAC. Aucun vocabulaire émotionnel parallèle ne doit être inventé dans le moteur audio. Le volume joueur est persistant et les écarts propres aux segments restent volontairement faibles.
 
 ## Nettoyage et persistance
 

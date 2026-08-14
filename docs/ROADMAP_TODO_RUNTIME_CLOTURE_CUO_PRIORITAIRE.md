@@ -6,7 +6,7 @@ Cette page est la **seule TODO active**.
 
 ## Étape 5 — correctifs supplémentaires
 
-État : **en cours, base cumulative `b1615bb`**.
+État : **en cours, base cumulative `a0ca8dc`**.
 
 - [x] Spores immobiles et comportement rotatif des créatures supprimé.
 - [x] Coutures et sous-plateaux opaques ; brouillards améliorés.
@@ -18,12 +18,27 @@ Cette page est la **seule TODO active**.
 - [x] Trois MSC coralliennes raccordées au moteur et injectées par défaut dans les mondes sous-marins bioluminescents à la place des arches droites isolées.
 - [x] Rochers blanchis limités explicitement aux contextes glace, banquise, neige et toundra.
 - [ ] Valider visuellement en jeu la répartition des trois MSC coralliennes et l'absence de roche blanche sous-marine.
-- [ ] Choix de la ressource réellement la plus proche.
+- [x] Choix de la ressource réellement la plus proche.
 - [ ] Collecte après observation.
 - [ ] Priorité donnée à la commande manuelle.
 - [ ] Fatigue, récupération et annonces de repos.
 - [ ] MAP_Test : finir la qualification sauvegarde/relecture et dosage.
 - [ ] Menu Planète : validation finale du scroll limité sur les formats d'écran ciblés.
+
+### Musique adaptative — finalisation en cours
+
+- [x] Raccorder le catalogue, le lecteur double deck, le pont gameplay/BAC et la commande de volume.
+- [x] Remplacer les changements à chaque action par un seuil de trois actions similaires et une dominance d'activité sur cinq minutes.
+- [x] Ajouter des séquences longues, développements, ponts, retours et anti-répétition.
+- [x] Marquer l'entrée d'une nouvelle map par une variation temporaire, sans imposer toujours la même introduction.
+- [ ] Finaliser E2 : prolongation d'environ deux secondes et niveau légèrement renforcé.
+- [ ] Finaliser F : conserver la dernière note et repousser le fondu.
+- [ ] Finaliser Relic E : isoler proprement les trois notes centrales par de petits fondus.
+- [x] Conserver Main A ; abandonner Quiet B comme variante retenue.
+- [ ] Normaliser le niveau des micro-sons validés et définir leur attribution aux micro-événements BAC.
+- [ ] Garantir des développements longs en autonomie et supprimer les boucles trop facilement reconnaissables.
+- [ ] Vérifier qu'aucune transition ou entrée de map ne provoque de silence ni de ralentissement du chargement 3D.
+- [ ] Geler les minutages et règles seulement après validation d'écoute en jeu.
 
 ## JALON GELÉ — Bible + Runtime V0.1
 

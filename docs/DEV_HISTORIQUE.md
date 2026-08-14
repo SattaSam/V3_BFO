@@ -225,3 +225,34 @@ Résultat : cumulatif V17 validé et confirmé en jeu ; **27 tests automatisés 
 Construire une quatrième mission uniquement à partir d'une fiche déclarative,
 puis vérifier son cycle complet, la sauvegarde/recharge et la non-régression des
 trois missions existantes.
+
+# Session du 13–14 août 2026 — Étape 5, population et musique adaptative
+
+## Base cumulative
+
+- Reprise de l'Étape 5 sur `b1615bb`.
+- Publication du commit `a0ca8dc9664966f5b9ffcc7a5e80c2c03af286d2` le 14 août 2026.
+- Le commit intègre les trois MSC coralliennes, la règle neige resserrée, les registres synchronisés, les tests et la TODO active.
+
+## Population et micro-scènes
+
+- Trois MSC coralliennes enregistrées dans les sources maîtres et les catalogues jeu/MAP_Test/CUO Lab.
+- Une variante garantie dans les mondes sous-marins bioluminescents, choisie de façon déterministe.
+- Suppression des arches droites isolées de la population sous-marine.
+- Compensation du nombre d'objets de la MSC dans le budget décoratif.
+- Blanchiment d'un rocher sur trois uniquement lorsque le biome, profil, nom ou identifiant de trait exprime explicitement glace, banquise, neige ou toundra.
+- Suite ciblée portée à 16 tests réussis ; suite globale observée à 36/45, avec les neuf échecs historiques déjà consignés.
+
+## Musique adaptative
+
+- Passage d'un contrat préparatoire à un moteur raccordé au jeu : catalogue, double lecteur, pont gameplay/BAC et bouton de coupure persistant.
+- Réduction des changements trop fréquents : trois actions semblables consécutives ou activité dominante supérieure à 50 % d'au moins six actions sur cinq minutes.
+- Ajout de variations d'entrée de map, de développements longs, de ponts et d'un historique anti-répétition.
+- Les axes et émotions utilisés sont ceux réellement fournis par le BAC ; le contexte de gameplay reste prioritaire.
+- Validation d'écoute encore ouverte : E2, F, Relic E, normalisation des micro-sons, silences occasionnels, monotonie en autonomie et absence d'impact sur le chargement des maps.
+
+## Discipline documentaire
+
+- `ROADMAP_TODO_RUNTIME_CLOTURE_CUO_PRIORITAIRE.md` devient explicitement la seule TODO active.
+- `TODO.md` et `ROADMAP_TODO.md` restent des archives historiques.
+- Les références courantes sont MASTER, ARCHITECTURE_TECHNIQUE, DEV_HISTORIQUE, MUSIC_SYSTEM_V1 et la TODO active.

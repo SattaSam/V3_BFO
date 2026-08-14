@@ -1,133 +1,113 @@
-# BLUEFOX ODYSSEY — CONTRAT MUSICAL V1
+# BLUEFOX ODYSSEY — SYSTÈME MUSICAL ADAPTATIF
 
-Statut : base déclarative préparatoire, non raccordée au lecteur audio.  
-Date : 2026-08-13.
+Statut : **raccordé au jeu, finalisation d'écoute en cours**
 
-## Objet et chaîne de décision
+Référence documentaire : 14 août 2026
 
-Le contexte de jeu choisit les familles compatibles. Le BAC module leur intensité et départage les variantes ; il ne choisit jamais seul un morceau.
+Base GitHub observée : `a0ca8dc9664966f5b9ffcc7a5e80c2c03af286d2`
 
-```text
-Gameplay + mission + biome
-            ↓
-     contexte musical
-            ↓
- intensité de base (0..1)
-            ↓
- pondération BAC / émotion
-            ↓
- catalogue + historique récent
-            ↓
- segment et transition
-```
+## 1. Intention
 
-## Sources de vérité
-
-- `data/music-catalog.js` : familles, contextes, règles, segments et fiches des pistes.
-- Le futur moteur audio : lecture, préchargement, transitions et historique.
-- Le BAC : valeurs normalisées, sans connaître les fichiers audio.
-- Les réglages joueur : volumes, activation et accessibilité.
-
-Aucune association morceau/situation ne doit être codée en dur dans `world-engine.js`, le BAC ou l'interface.
-
-## Familles validées
-
-| Famille | Fonction | Intensité |
-|---|---|---:|
-| `motif` | Identité de BlueFox, rappels et transitions | 0.25–0.70 |
-| `main` | Thème principal et jalons narratifs | 0.30–0.80 |
-| `drift` | Exploration calme et contemplation | 0.10–0.45 |
-| `dynamics` | Action rapide, tension et danger | 0.55–1.00 |
-| `relic` | Recherche, archéologie, craft et civilisations | 0.25–0.75 |
-
-`relic` peut préparer un enchaînement `motif` ou `main`. V1 reste monoflux : aucune superposition n'est imposée.
-
-## Contextes V1
-
-`exploration_calm`, `exploration_significant`, `contemplation`, `action_dynamic`, `danger`, `research`, `archaeology`, `craft`, `civilization`, `narrative_milestone`, `camp`, `rest`.
-
-Chaque contexte fournit une intensité de base. Une mission ou un événement narratif peut temporairement augmenter sa priorité sans modifier le BAC.
-
-## Entrée BAC V1
-
-```js
-{
-  axes: {
-    survival: 0,
-    exploration: 0,
-    collectionLogistics: 0,
-    researchKnowledge: 0,
-    constructionTechnology: 0
-  },
-  emotions: {
-    curiosity: 0,
-    serenity: 0,
-    tension: 0,
-    wonder: 0,
-    fatigue: 0
-  }
-}
-```
-
-Toutes les valeurs sont bornées entre `0` et `1`; une valeur absente vaut `0`.
+La musique doit installer durablement une ambiance et traduire l'évolution du gameplay sans changer de thème à chaque interaction. Le contexte réel choisit une famille et une séquence ; le BAC module ensuite l'intensité et la variante, sans décider seul de la musique.
 
 ```text
-intensité finale =
-  clamp(intensité contexte
-      + somme(axe × poids famille)
-      + somme(émotion × poids famille),
-      minimum famille,
-      maximum famille)
+activité + mission + biome + survie
+                 ↓
+       contexte et priorité
+                 ↓
+       activité récente dominante
+                 ↓
+          état réel du BAC
+                 ↓
+ catalogue → séquence → segment → fondu
 ```
 
-Les poids BAC restent modérés : le contexte pèse toujours davantage qu'une émotion isolée.
+## 2. Sources de vérité
 
-## Segments
+- `data/music-catalog.js` : familles, contextes, pistes, segments, séquences, profils et minutages.
+- `engine/adaptive-music-engine-v1.js` : lecture double deck, préchargement, fondus, reprise, anti-répétition et réglages.
+- `engine/adaptive-music-gameplay-bridge-v1.js` : traduction des événements jeu, missions, survie et activité en contextes musicaux.
+- `engine/adaptive-music-ui-v1.js` et sa feuille de style : bouton musique et positionnement avec les commandes caméra/bulles.
+- BAC : priorités et émotions réelles ; aucune copie de profil musical indépendante.
 
-Une piste peut déclarer `intro`, `development`, `loop` et `outro`, avec plusieurs variantes d'un même rôle. Chaque segment possède `startSec`, `endSec`, `loopable` et, si nécessaire, `loopInSec` / `loopOutSec`.
+Aucune association piste/situation ne doit être codée dans `world-engine.js` ou l'interface.
 
-Une boucle peut se répéter, alterner avec une autre boucle compatible, céder la place à un développement ou sortir par fondu. Les intros longues et les développements doivent conserver leur progression musicale utile.
+## 3. État implémenté
 
-## Transitions V1
+- Lecteur à deux decks audio avec fondu croisé.
+- Démarrage après déverrouillage audio par interaction utilisateur.
+- Réglage activé/coupé et volume persistants dans `bluefox_music_settings_v1`.
+- Arrêt lorsque l'onglet devient invisible et reprise contrôlée au retour.
+- Diagnostics publics : `BlueFox3D.getMusicDiagnostics()` et `BlueFox3D.getMusicBridgeDiagnostics()`.
+- Quatorze pistes déclarées, dont douze actives et deux sources longues volontairement désactivées tant que leurs découpes ne sont pas calées.
+- Séquences composées d'intros, boucles, développements, ponts et inserts.
 
-- Ne pas interrompre une intro, sauf danger ou événement narratif prioritaire.
-- Respecter une durée minimale d'écoute.
-- Privilégier un point de sortie déclaré.
-- Utiliser un fondu standard entre contextes voisins et un fondu urgent vers l'action/danger.
-- Éviter la répétition immédiate quand une alternative compatible existe.
-- Ne pas relancer une intro longue après une simple variation BAC.
+## 4. Familles et contextes
 
-| Paramètre | Valeur |
-|---|---:|
-| Fondu standard | 4 s |
-| Fondu urgent | 1.5 s |
-| Écoute minimale | 20 s |
-| Répétitions maximales d'une boucle | 3 |
-| Historique anti-répétition | 3 pistes |
+Familles : `motif`, `main`, `drift`, `dynamics`, `relic`.
 
-## Priorités
+Contextes : `exploration_calm`, `exploration_significant`, `map_discovery`, `contemplation`, `action_dynamic`, `danger`, `research`, `archaeology`, `craft`, `civilization`, `narrative_milestone`, `camp`, `rest`.
 
-1. Événement narratif musical explicite.
-2. Danger ou action urgente.
-3. Interaction/mécanique active.
-4. Mission prioritaire.
-5. Exploration, camp ou repos.
-6. Modulation BAC.
-7. Variété et historique récent.
+Ordre de priorité : événement narratif, danger, action urgente, interaction, mission, exploration/camp/repos, modulation BAC, variété.
 
-## Contrat d'une piste
+## 5. Stabilisation des changements
 
-Une piste exploitable possède un `id` stable, un titre, une famille connue, un chemin relatif, au moins un contexte, une plage d'intensité cohérente et au moins un segment valide.
+Une collecte ou une observation isolée ne change plus immédiatement le thème.
 
-Les noms et minutages des 24 découpes seront ajoutés après inventaire des fichiers validés. Aucun fichier fictif n'est déclaré dans cette passe.
+- Série : changement possible après **trois actions similaires consécutives**.
+- Dominance : changement durable si une activité représente **plus de 50 %** d'au moins **six actions**.
+- Fenêtre d'analyse : **cinq minutes**.
+- Durée indicative d'une dominance : **150 secondes**.
+- Une transition de map efface l'historique local d'activité.
 
-## Prototype suivant
+Activités reconnues : collecte, observation, recherche et reliques/micro-scènes/ruines.
 
-Le premier lecteur testera uniquement :
+## 6. BAC et intensité
 
-1. `exploration_calm` → `drift` ;
-2. `archaeology/research` → `relic`, puis préférence `motif/main` ;
-3. `action_dynamic` → `dynamics`.
+Axes réellement exploités : `survival`, `exploration`, `collection`, `research`, `relations`.
 
-Validation : démarrage après interaction joueur, boucle propre, changement de contexte, pondération BAC bornée, anti-répétition et retour à l'exploration calme.
+Émotions réellement exploitées lorsqu'elles existent dans les diagnostics BAC : `curiosity`, `serenity`, `concern`, `determination`, `frustration`.
 
+Le contexte reste dominant. Les pondérations BAC sont modérées et servent surtout à sélectionner un développement ou une variation compatible. Le niveau sonore ne doit pas devenir le principal vecteur d'intensité.
+
+## 7. Continuité musicale
+
+- Écoute minimale : 20 secondes, sauf priorité supérieure.
+- Fondu standard : 4 secondes ; fondu urgent : 1,5 seconde.
+- Une intro protégée n'est interrompue que par danger, priorité suffisante ou découverte de map.
+- Maximum indicatif : trois répétitions consécutives d'une boucle simple.
+- Historique anti-répétition : trois séquences récentes.
+- Les développements longs sont préférés lorsque l'activité se maintient.
+- Une entrée de nouvelle map utilise une ponctuation temporaire puis revient au contexte dominant.
+- Le choix d'entrée doit varier ; une exploration longue ne doit pas exposer une boucle courte facilement identifiable.
+
+## 8. Décisions d'écoute validées
+
+- **Main A** est conservé comme référence.
+- **Quiet B** est abandonné.
+- **Relic E** reste exploitable en isolant les trois notes centrales par de courts fondus.
+- Les micro-sons doivent être normalisés avant attribution aux micro-événements BAC.
+- Les boutons musique, caméra et bulles doivent rester regroupés près de la barre des menus.
+
+## 9. Réglages restant à finaliser
+
+- E2 : prolonger d'environ deux secondes et renforcer légèrement le niveau.
+- F : conserver la note finale et déplacer le fondu après celle-ci.
+- Relic E : caler précisément les fondus autour des trois notes centrales.
+- Éliminer les arrêts audio occasionnels et vérifier la reprise après erreur.
+- Réduire encore la monotonie des entrées de map et de l'autonomie prolongée.
+- Vérifier qu'aucun préchargement ou changement musical ne ralentit le moteur 3D lors d'un changement de map.
+- Finaliser l'inventaire des micro-sons et leur règle d'attribution aux événements BAC.
+- Normaliser les niveaux perçus de toutes les sources retenues.
+
+## 10. Critères de gel
+
+Le système pourra être gelé lorsque :
+
+1. aucune session longue ne produit de silence inattendu ;
+2. aucune entrée de map n'est ralentie par l'audio ;
+3. les thèmes restent stables malgré l'alternance normale observation/collecte ;
+4. les séquences autonomes développent une ambiance sans boucle évidente ;
+5. les variations de map restent perceptibles et suffisamment diverses ;
+6. E2, F, Relic E et les micro-sons sont validés à l'écoute ;
+7. les niveaux sonores sont homogènes et le réglage joueur reste persistant.

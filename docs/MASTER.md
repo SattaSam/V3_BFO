@@ -1,10 +1,12 @@
 # BLUEFOX ODYSSEY — MASTER
 
 ## État de référence
-Dernière mise à jour : 2026-08-09
+Dernière mise à jour : 2026-08-14
 
 ### Version de travail
-- Base PC connue : V16.20.
+- Base GitHub de référence : commit `a0ca8dc9664966f5b9ffcc7a5e80c2c03af286d2` (`neige et sous marin bioluminescent`).
+- Ce commit est le jalon cumulatif courant de l'Étape 5 et remplace comme base de reprise les anciens correctifs nommés V12/V15/V17/V19/V20.
+- Base PC historique : V16.20.
 - Version mobile/APK précédente : V16.14, considérée obsolète.
 - Développement mobile à reprendre depuis la V16.20 à jour.
 - Objectif : builds testables régulièrement, Web puis Android.
@@ -62,12 +64,11 @@ Objectif d’architecture validé :
 - émettre un événement de progression correspondant à l’action réelle.
 
 ### État du chantier interactions / missions
-- La base de reprise reste le commit GitHub `5e381d3` (`V4.5 missionV12+ UI`).
-- Le cumulatif propre V17, construit sur cette base, est validé en jeu.
+- Le Runtime missionnel V0.1 est gelé comme fondation fonctionnelle.
+- Quatre missions représentatives sont validées : Camp, Discovery, Archaeology et Reconnaissance.
 - La collecte est pilotée par les métadonnées CUO et un événement canonique ;
   aucun compteur direct propre à la mission Camp ne doit être réintroduit.
-- Les corrections V15 à V17 constituent désormais le point de référence local
-  jusqu'à leur intégration au dépôt.
+- Les anciens jalons V15 à V20 sont absorbés par le dépôt courant et ne constituent plus des bases parallèles.
 
 ### Méthode de développement obligatoire
 Avant tout correctif :
@@ -257,8 +258,33 @@ clôturée.
 Le cumulatif V17 a été validé et confirmé en jeu. Les contrôles automatisés
 associés passent : **27 tests sur 27**.
 
+## Jalon Étape 5 — monde, interface et population — 2026-08-14
+
+- Contrat MSC validé : une scène créée dans CUO Lab conserve exactement ses transformations locales dans MAP_Test et dans le jeu ; ObjectSpawner reste libre de choisir son ancrage global.
+- Trois scènes `MSC-CUSTOM-CORAILBIOLUMINESCENT1/2/3` sont enregistrées et une variante est garantie sur chaque monde sous-marin bioluminescent.
+- Ces scènes remplacent les arches droites sous-marines isolées ; aucune lumière supplémentaire n'est créée.
+- Les rochers blanchis sont réservés aux identités explicites glace, banquise, neige ou toundra.
+- Les chemins principaux restent dégagés sur les configurations de 4 et 6 plateaux ; les gros volumes de couture restent cantonnés hors de ces axes.
+- La caméra joueur et le glissement de la carte Planète persistent ; le premier affichage d'une partie centre la carte sur BlueFox, puis le recentrage redevient volontaire.
+- Le menu Planète dispose des repères BlueFox, camp, balise et drone ; le volet droit est ancré en haut.
+- Le dosage fongique réduit les champignons-lanternes et renforce spores et champignons géants, avec surveillance de la charge 3D.
+
+## Musique adaptative — état courant
+
+Le moteur musical est désormais raccordé au jeu. Ses sources autoritaires sont `data/music-catalog.js`, `engine/adaptive-music-engine-v1.js`, `engine/adaptive-music-gameplay-bridge-v1.js` et `engine/adaptive-music-ui-v1.js`.
+
+Principes validés :
+
+- doubles lecteurs audio et fondus croisés ;
+- séquences composées d'intros, boucles, développements, ponts et inserts ;
+- choix guidé d'abord par le contexte réel, puis modulé par les axes et émotions réellement exposés par le BAC ;
+- changement d'ambiance après trois actions similaires ou lorsqu'une activité dépasse 50 % d'au moins six actions sur une fenêtre de cinq minutes ;
+- ponctuation spécifique à l'entrée d'une map sans relancer systématiquement la même introduction ;
+- bouton musique persistant, regroupé avec les commandes caméra et bulles ;
+- priorité aux séquences longues et développées, avec anti-répétition.
+
+Le chantier audio reste en validation d'écoute. Les découpes E2, F et Relic E, la normalisation des micro-sons, la stabilité des transitions longues et l'absence totale de silence pendant les changements de map doivent être finalisées avant gel.
+
 ### Prochaine reprise
 
-Créer une quatrième mission uniquement depuis une fiche déclarative afin de
-prouver l'extensibilité de la chaîne complète. Valider ensuite son cycle complet,
-la sauvegarde/recharge et la non-régression des trois missions existantes.
+Finaliser la qualification de l'Étape 5, puis reprendre l'harmonisation CUO ↔ Bible ↔ moteur. Le suivi opérationnel unique est `ROADMAP_TODO_RUNTIME_CLOTURE_CUO_PRIORITAIRE.md`.
