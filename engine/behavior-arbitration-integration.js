@@ -3,9 +3,10 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions || {};
-  const INTEGRATION_VERSION = "bac-knowledge-routing-r15";
-  const PREFERENCE_DECAY_MS = 6 * 60 * 1000;
+  const INTEGRATION_VERSION = "bac-knowledge-routing-r16c";
+  const PREFERENCE_DECAY_MS = 20 * 60 * 1000;
   const PREFERENCE_WINDOW_MS = 4 * 60 * 1000;
+  const PREFERENCE_COMMIT_MS = 3 * 60 * 1000;
   const TARGET_LOCK_MS = 12000;
   const TARGET_SWITCH_RATIO = 0.62;
   const TARGET_CANDIDATES = 6;
@@ -37,6 +38,26 @@
   const objectDefinition = (object) => {
     const data = object?.userData || {};
     return data.functional || BF.ObjectLibrary?.get?.(data.libraryType) || BF.ObjectLibrary?.get?.(data.kind) || {};
+  };
+  const isCollectableDefinition = (definition) => {
+    const actions = new Set(definition?.interaction?.actions || []);
+    return Boolean(
+      definition?.gameplay?.collectable === true ||
+      actions.has("collect") ||
+      actions.has("extract")
+    );
+  };
+  const acquisitionAction = (definition) => {
+    const actions = new Set(definition?.interaction?.actions || []);
+    const configured = String(
+      definition?.interaction?.acquisitionAction ||
+      definition?.interaction?.afterInspectionAction ||
+      ""
+    ).toLowerCase();
+    if (configured === "extract" && actions.has("extract")) return "extract";
+    if (configured === "collect") return "collect";
+    if (actions.has("extract") && !actions.has("collect")) return "extract";
+    return isCollectableDefinition(definition) ? "collect" : null;
   };
   const objectAction = (engine, object) => {
     const resolved = BF.resolveObjectInteraction?.(object);
@@ -123,8 +144,6 @@
     const matches = objects.some((object) => objectKind(object) === preferred.kind);
     if (!matches) return 0;
 
-    // La préférence joueur doit être perceptible sans devenir une contrainte dure.
-    // Elle monte avec la répétition puis décroît naturellement avec preferredEntry().
     const relation = getBAC()?.getDiagnostics?.().relation || {};
     const axisTrust = Number(relation.trustByAxis?.[axis]) || 0;
     const trustFactor = Math.max(0.75, Math.min(1.35, 1 + axisTrust / 100));
@@ -265,11 +284,25 @@
     const reasons = [];
 
     if (axis === "collection") {
-      if (!["collect", "extract"].includes(action)) {
+      const preferred = preferredEntry();
+      const preferredCollectable =
+        isCollectableDefinition(definition) &&
+        preferred?.kind === kind;
+      if (
+        !["collect", "extract"].includes(action) &&
+        !preferredCollectable
+      ) {
         return { score: -1000, reasons: ["incompatible"] };
       }
       score = 58;
       reasons.push("resource-action");
+      if (
+        preferredCollectable &&
+        ["observe", "inspect", "analyze"].includes(action)
+      ) {
+        score += 6;
+        reasons.push("preferred-acquisition-prerequisite");
+      }
       if (!knownResource) {
         score += 18;
         reasons.push("new-resource");
@@ -322,7 +355,6 @@
         /decor|decors|décor/.test(category) ||
         tags.includes("decor");
 
-      // Une nouvelle instance de décor connu ne recrée pas une nouvelle connaissance.
       if (decorative && !perInstanceValue && objectResearch.seen) {
         score = Math.min(score, action === "analyze" ? 10 : action === "inspect" ? 8 : 3);
         reasons.push("known-decor-type");
@@ -349,8 +381,6 @@
       reasons.push("player-preference");
     }
 
-    // La fraîcheur ne remplace pas le niveau de connaissance : elle empêche
-    // simplement les répétitions immédiates sur une cible encore pertinente.
     if (age < 90000) {
       score -= 35;
       reasons.push("just-interacted");
@@ -492,7 +522,19 @@
     );
     const available = valid.length ? valid : objects;
 
-    const ranked = available
+    const preferredAvailable = preferred
+      ? available.filter((object) => objectKind(object) === preferred)
+      : [];
+
+    // La préférence ne re-classe jamais les autres objets. Elle intervient
+    // seulement après le choix d'axe, avant la distance.
+    const candidatePool =
+      preferredAvailable.length &&
+      preferredEntry()?.lastAxis === axis
+        ? preferredAvailable
+        : available;
+
+    const ranked = candidatePool
       .map((object) => {
         const interest = targetInterest(engine, object, axis);
         return {
@@ -518,7 +560,14 @@
       at: Date.now(),
       axis,
       action: selected ? objectAction(engine, selected) : null,
+      finalIntent: selected && axis === "collection"
+        ? acquisitionAction(objectDefinition(selected))
+        : null,
       preferredKind: preferred,
+      preferenceApplied: Boolean(
+        preferredAvailable.length &&
+        candidatePool === preferredAvailable
+      ),
       selectedKind: selected ? objectKind(selected) : null,
       selectedInterest: shortlist[0]?.interest ?? null,
       selectedReasons: shortlist[0]?.reasons || [],
@@ -529,6 +578,9 @@
       candidates: shortlist.map((entry) => ({
         kind: objectKind(entry.object),
         action: objectAction(engine, entry.object),
+        finalIntent: axis === "collection"
+          ? acquisitionAction(objectDefinition(entry.object))
+          : null,
         interest: entry.interest,
         reasons: entry.reasons,
         researchKnowledge: targetInterest(engine, entry.object, axis).researchKnowledge || null,
@@ -543,10 +595,6 @@
     if (!object) return false;
     const now = Date.now();
 
-    // Le score d'intérêt a déjà choisi la cible gagnante. Le verrou ne peut plus
-    // substituer une ancienne cible simplement parce qu'elle est plus proche.
-    // Il sert uniquement à conserver l'engagement sur cette même cible pendant
-    // l'approche / interaction.
     const lock = engine.__bacTargetLock;
     if (
       lock?.object === object &&
@@ -554,6 +602,14 @@
       engine.canInteractWith?.(object, now)
     ) {
       object.userData.requestedInteractionSource = source;
+      if (
+        axis === "collection" &&
+        preferredKind() === objectKind(object)
+      ) {
+        object.userData.requestedInteraction =
+          acquisitionAction(objectDefinition(object)) ||
+          object.userData.requestedInteraction;
+      }
       return engine.targetInteraction(object);
     }
 
@@ -563,6 +619,14 @@
       until: now + TARGET_LOCK_MS
     };
     object.userData.requestedInteractionSource = source;
+    if (
+      axis === "collection" &&
+      preferredKind() === objectKind(object)
+    ) {
+      object.userData.requestedInteraction =
+        acquisitionAction(objectDefinition(object)) ||
+        object.userData.requestedInteraction;
+    }
     return engine.targetInteraction(object);
   };
 
@@ -865,10 +929,11 @@
     const originalTargetInteraction = engine.targetInteraction.bind(engine);
     engine.targetInteraction = function targetInteractionWithBAC(object, retry = false) {
       if (!retry && object?.userData?.requestedInteractionSource === "manual") {
-        /* Une commande explicite du joueur casse l'engagement autonome précédent.
-           Le BAC core enregistre déjà ce geste : ici on apprend seulement le sous-type. */
         this.__bacTargetLock = null;
-        rememberPreference(objectAxis(this, object), objectKind(object));
+        const intendedAxis = isCollectableDefinition(objectDefinition(object))
+          ? "collection"
+          : objectAxis(this, object);
+        rememberPreference(intendedAxis, objectKind(object));
       }
       const result = originalTargetInteraction(object, retry);
       if (!result && object?.userData) object.userData.bacAvoidUntil = Date.now() + 20000;
@@ -890,17 +955,27 @@
       const fatigue = survival.fatigue || { level: "normal", movement: 1, actionDuration: 1 };
       this.character.fatigueSpeedMultiplier = fatigue.movement || 1;
       if (this.missionManager?.hasRunnablePrimaryMission?.()) return;
-      // Laisser le moteur sous-jacent exécuter ses pauses physiologiques avec
-      // son horodatage intact. Écrire lastAutonomyAt avant cet appel le faisait
-      // refuser immédiatement l'action (delta < 5 s), puis bloquait le streak.
       if (survival.needs?.criticalRest || this.autonomyActionStreak >= this.autonomyBreakTarget) {
         return originalAutonomy(now);
       }
       this.lastAutonomyAt = now;
       const interactables = (this.currentMap?.interactables || [])
         .filter((object) => this.canInteractWith(object, now));
+      const activePreference = preferredEntry();
+      const preferredCollectables = activePreference
+        ? interactables.filter((object) =>
+            objectKind(object) === activePreference.kind &&
+            isCollectableDefinition(objectDefinition(object))
+          )
+        : [];
+      const normalCollection = interactables.filter(
+        (object) => objectAxis(this, object) === "collection"
+      );
       const byAxis = {
-        collection: interactables.filter((object) => objectAxis(this, object) === "collection"),
+        collection: [...new Set([
+          ...normalCollection,
+          ...preferredCollectables
+        ])],
         research: interactables.filter((object) => objectAxis(this, object) === "research"),
         relations: interactables.filter((object) => objectAxis(this, object) === "relations")
       };
@@ -920,8 +995,6 @@
         relations: preferenceActivityBoost(this, "relations", byAxis.relations)
       };
 
-      // Comme MissionPlanner.score(), la disponibilité d'une action dépend de
-      // son utilité réelle dans le contexte. Le BAC garde l'arbitrage entre axes.
       const objectWeight = (interest, preferenceBoost = 0) =>
         Math.max(0, 6 + interest * 0.22 + preferenceBoost * 0.35);
 
@@ -930,9 +1003,6 @@
         interests.research >= 30 ||
         interests.relations >= 30;
 
-      // Un portail connu n'est plus une activité concurrente permanente.
-      // En autonomie libre il devient pertinent lorsque la carte locale est
-      // déjà suffisamment couverte, ou lorsqu'il n'y a plus de secteur à découvrir.
       const gateUseful =
         knownGates.length > 0 &&
         (
@@ -1029,7 +1099,21 @@
           }
         }
       ];
-      const selected = weightedPick(options);
+      const preferredCollectionOption = options.find(
+        (option) => option.id === "collection-object"
+      );
+      const preferenceCommitmentActive =
+        Boolean(
+          activePreference &&
+          activePreference.lastAxis === "collection" &&
+          Date.now() - activePreference.lastAt < PREFERENCE_COMMIT_MS &&
+          preferredCollectables.length > 0 &&
+          preferredCollectionOption?.available
+        );
+
+      const selected = preferenceCommitmentActive
+        ? preferredCollectionOption
+        : weightedPick(options);
       if (!selected) return originalAutonomy(now);
       if (lastTargetDecision) {
         lastTargetDecision.preferenceActivityBoosts = { ...preferenceBoosts };
@@ -1060,14 +1144,11 @@
           }
 
           if (recentlyInterruptedByPlayer) {
-            // Une interruption joueur annule le trajet autonome en attente et force
-            // un nouvel arbitrage, au lieu de laisser pendingGate bloquer l'autonomie.
             this.pendingGate = null;
             this.character.stop?.();
             this.character.setTarget?.(this.character.root.position);
             this.lastAutonomyAt = 0;
           } else {
-            // Blocage technique sans ordre joueur : reprendre le trajet prévu.
             this.character.setTarget(this.pendingGate.position, "run");
             this.showWorldMarker?.(this.pendingGate.position);
             this.lastActivityAt = now;
@@ -1075,8 +1156,6 @@
           }
         }
 
-        // Le watchdog est une sécurité de déblocage, pas un second moteur
-        // d'autonomie : il rend la décision au BAC et n'invente aucun déplacement.
         this.lastAutonomyAt = 0;
         this.updateAutonomy(now);
       };
@@ -1117,6 +1196,18 @@
         autonomyUnderlyingHook: engine?.__autonomyBeforeRationAI?.name || "",
         rationAutonomyDecision: engine?.__lastRationAutonomyDecision || null, targetPreference: (() => { const e = preferredEntry(); return e ? { kind:e.kind, count:e.count, strength:Number(e.strength.toFixed(2)), ageMs:Date.now()-e.lastAt, lastAxis:e.lastAxis } : null; })(),
         lastTargetDecision,
+        preferenceCommitment: (() => {
+          const e = preferredEntry();
+          if (!e) return null;
+          return {
+            active: e.lastAxis === "collection" &&
+              Date.now() - e.lastAt < PREFERENCE_COMMIT_MS,
+            remainingMs: Math.max(
+              0,
+              PREFERENCE_COMMIT_MS - (Date.now() - e.lastAt)
+            )
+          };
+        })(),
         missionOverlayInstalled: Boolean(base.missionOverlayInstalled || Missions.MissionPlanner?.prototype?.__bacRoutingFix2Planner || Missions.MissionManager?.prototype?.__bacRoutingFix2Manager) };
     };
     BF.__bacDiagnosticBridgeInstalled = true;
