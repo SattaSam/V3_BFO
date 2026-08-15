@@ -1,4 +1,4 @@
-﻿(function (global) {
+(function (global) {
   "use strict";
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
@@ -782,9 +782,32 @@
         gate.shelterKinds || ["camp", "refuge", "base"]
       );
       const radius = Math.max(0.5, Number(gate.radius) || 8);
+      const requiredMapId = gate.mapId != null
+        ? String(gate.mapId)
+        : null;
+      const requiredSiteId = gate.siteId != null
+        ? String(gate.siteId)
+        : null;
+
+      if (
+        requiredMapId != null &&
+        String(engine.currentMapId || "") !== requiredMapId
+      ) {
+        return false;
+      }
 
       const satisfied = this.shelterObjects().some((record) => {
         if (!allowed.has(record.kind)) return false;
+
+        const recordSiteId = String(
+          record.object?.userData?.establishedSite ||
+          record.object?.userData?.siteId ||
+          record.id ||
+          ""
+        );
+        if (requiredSiteId != null && recordSiteId !== requiredSiteId) {
+          return false;
+        }
 
         const q = record.object?.getWorldPosition
           ? record.object.getWorldPosition(
