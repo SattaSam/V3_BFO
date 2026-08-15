@@ -727,13 +727,16 @@
   });
 
   global.addEventListener(
-    "bluefox:navigate",
-    () =>
+    "bluefox:map-transition-completed",
+    (event) => {
+      const detail = event?.detail || {};
+      if (!detail.fromMapId || !detail.toMapId) return;
       recordAction(
         "travel",
-        "manual",
+        detail.source === "autonomy" ? "autonomy" : "manual",
         { axis: "exploration" }
-      )
+      );
+    }
   );
 
   global.addEventListener(

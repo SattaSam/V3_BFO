@@ -4,7 +4,7 @@
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   if (!BF.ObjectSpawner || BF.MapPopulationHierarchy) return;
 
-  const VERSION = "map-population-hierarchy-r1";
+  const VERSION = "map-population-hierarchy-r2-start-fauna";
   const ROCK_TYPES = [
     ["rock", 48],
     ["strong_rock", 23],
@@ -27,6 +27,31 @@
     { id: "dry-growth", biomes: ["desert", "plain", "alien"], radius: 5.2, objects: [["cactus",0,0,0],["frond",1.8,0.8,1],["rock",-1.7,1.1,0],["fiber",0.4,-1.8,2]] },
     { id: "luminous-verge", biomes: ["fungal", "forest", "swamp", "cave", "alien"], radius: 5.2, objects: [["spore",0,0,1],["lantern_mushrooms",1.7,0.8,2],["fern",-1.6,1.1,0],["lunar_vine",0.4,-1.8,1]] }
   ]);
+
+  const isTutorialStartMap = (definition) => {
+    if (!definition) return false;
+    if (definition.tutorial === true || definition.generator?.tutorial === true) return true;
+    const id = String(definition.id || "").toLowerCase();
+    return id === "crystal";
+  };
+
+  const isFaunaType = (type) => {
+    const definition = BF.ObjectLibrary?.get?.(type);
+    if (!definition) return false;
+    const category = String(
+      definition.category ||
+      definition.spawn?.category ||
+      ""
+    ).toLowerCase();
+    const tags = [
+      ...(definition.spawn?.tags || []),
+      ...(definition.tags || [])
+    ].map((value) => String(value).toLowerCase());
+    return (
+      /fauna|animal|creature|npc|pnj|species/.test(category) ||
+      tags.some((tag) => /fauna|animal|creature|npc|pnj|species|living/.test(tag))
+    );
+  };
 
   const chooseWeighted = (entries, random) => {
     const available = entries.filter(([type]) => BF.ObjectLibrary?.get(type));
@@ -84,8 +109,6 @@
     const random = () => typeof randomSource === "function" ? randomSource() : randomSource.next();
     const startIndex = this.instances.length;
 
-    // La génération historique des rochers-obstacles reste pilotée par le moteur,
-    // mais le modèle visuel est varié et la famille "rock" n'écrase plus tout.
     const originalSpawn = this.spawn;
     this.spawn = function spawnWithRockVariety(type, spawnOptions = {}) {
       let resolvedType = type;
@@ -114,15 +137,12 @@
       }
     });
 
-    // Réduction du poids visuel des rochers : on conserve en priorité ceux de
-    // la couronne historique située en bord de plateau, jamais les corridors.
     const corridors = [
       ...Object.values(options.resolvedExits || {}).map((exit) => ({ start: options.definition.entry, end: exit })),
       ...(options.internalZonePaths || [])
     ];
     zoneStats.forEach((stat, zoneIndex) => {
       const center = zones[zoneIndex].center;
-      // Les gros blocs placés en lisière servent aussi de cache-couture.
       const keepTarget = Math.max(2, Math.round(stat.rocks.length * 0.72));
       const ranked = [...stat.rocks].sort((a, b) => {
         const score = (record) => {
@@ -150,9 +170,20 @@
 
     const biome = options.definition?.generator?.biomeId ||
       options.definition?.biome || options.definition?.id || "alien";
-    const compatibleScenes = DECORATIVE_SCENES.filter((scene) =>
-      scene.biomes.includes(biome) || scene.biomes.includes("alien")
-    );
+    const protectTutorialFauna = isTutorialStartMap(options.definition);
+    const compatibleScenes = DECORATIVE_SCENES
+      .map((scene) => protectTutorialFauna
+        ? {
+            ...scene,
+            objects: scene.objects.filter(([type]) => !isFaunaType(type))
+          }
+        : scene
+      )
+      .filter((scene) =>
+        scene.objects.length > 0 &&
+        (scene.biomes.includes(biome) || scene.biomes.includes("alien"))
+      );
+
     const existingConfigured = configuredMicroSceneCount(options.definition);
     const regularLimit = zones.length * defaultPerPlateau(zones.length);
     const targetScenes = existingConfigured > zones.length * 3
