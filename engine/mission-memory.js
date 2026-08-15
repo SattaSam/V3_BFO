@@ -1,4 +1,4 @@
-﻿(function (global) {
+(function (global) {
   "use strict";
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
@@ -28,6 +28,7 @@
         processedObjectEvents: {},
         effectReceipts: {},
         siteProgression: {},
+        researchUnlocks: {},
         missions: {},
         facts: {},
         history: [],
@@ -58,6 +59,7 @@
           processedObjectEvents: { ...(saved.processedObjectEvents || {}) },
           effectReceipts: { ...(saved.effectReceipts || {}) },
           siteProgression: { ...(saved.siteProgression || {}) },
+          researchUnlocks: { ...(saved.researchUnlocks || {}) },
           history: Array.isArray(saved.history) ? saved.history.slice(-150) : []
         };
         this.lastSavedAt = Date.now();

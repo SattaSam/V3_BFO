@@ -100,16 +100,168 @@
           warnings: []
         };
       }
-      return BF.BibleContractV01.validateCatalog(
+
+      const base = BF.BibleContractV01.validateCatalog(
         this.catalog,
         this.patterns,
         { compatibility: "strict" }
       );
+
+      const sequenceMissions = this.catalog.filter(
+        (mission) => mission?.pattern === "SEQUENCE_ACTIONS"
+      );
+      if (!sequenceMissions.length) return base;
+
+      const sequenceIds = new Set(
+        sequenceMissions.map((mission) => mission.id)
+      );
+      const errors = (base.errors || []).filter((message) =>
+        ![...sequenceIds].some((id) =>
+          message.startsWith(`${id} · slots`)
+        )
+      );
+
+      sequenceMissions.forEach((mission) => {
+        const steps = asArray(mission.sequence)
+          .filter((step) => step && typeof step === "object");
+        if (steps.length < 2) {
+          errors.push(
+            `${mission.id || "<sans-id>"} · sequence : minimum 2 étapes.`
+          );
+          return;
+        }
+
+        const slots = new Set();
+        steps.forEach((step, index) => {
+          const slot = step.slot || `step${index + 1}`;
+          if (slots.has(slot)) {
+            errors.push(
+              `${mission.id} · sequence[${index}].slot : identifiant dupliqué.`
+            );
+          }
+          slots.add(slot);
+
+          const action =
+            Missions.normalizeActionType?.(step.action) ||
+            String(step.action || "").trim().toLowerCase();
+          if (
+            !Object.values(Missions.ActionType || {}).includes(action)
+          ) {
+            errors.push(
+              `${mission.id} · sequence[${index}].action : action non supportée.`
+            );
+          }
+          if (
+            step.target != null &&
+            (
+              !Number.isFinite(Number(step.target)) ||
+              Number(step.target) < 1
+            )
+          ) {
+            errors.push(
+              `${mission.id} · sequence[${index}].target : doit être >= 1.`
+            );
+          }
+        });
+
+        steps.forEach((step, index) => {
+          asArray(step.requires).forEach((required) => {
+            if (!slots.has(required)) {
+              errors.push(
+                `${mission.id} · sequence[${index}].requires : slot inconnu ${required}.`
+              );
+            }
+          });
+        });
+      });
+
+      return Object.freeze({
+        ...base,
+        ok: errors.length === 0,
+        errors: Object.freeze(errors)
+      });
     }
 
     compileMission(mission) {
       const pattern = this.patterns[mission?.pattern];
       if (!mission || !pattern) return null;
+
+      if (mission.pattern === "SEQUENCE_ACTIONS") {
+        const steps = asArray(mission.sequence)
+          .filter((step) => step && typeof step === "object");
+        if (steps.length < 2) return null;
+
+        const nodeIds = steps.map((step, index) =>
+          `${mission.id}:${step.slot || `step${index + 1}`}`
+        );
+
+        const children = steps.map((step, index) => {
+          const slot = step.slot || `step${index + 1}`;
+          const requires = step.requires != null
+            ? asArray(step.requires)
+                .map((required) => {
+                  const requiredIndex = steps.findIndex(
+                    (candidate, candidateIndex) =>
+                      (
+                        candidate.slot ||
+                        `step${candidateIndex + 1}`
+                      ) === required
+                  );
+                  return requiredIndex >= 0
+                    ? nodeIds[requiredIndex]
+                    : null;
+                })
+                .filter(Boolean)
+            : index > 0
+              ? [nodeIds[index - 1]]
+              : [];
+
+          return {
+            id: nodeIds[index],
+            title: step.title || slot,
+            description: step.description || "",
+            type:
+              Missions.normalizeActionType?.(step.action) ||
+              String(step.action || "").trim().toLowerCase(),
+            target: Math.max(1, Number(step.target) || 1),
+            params: {
+              ...(step.params || {}),
+              bibleMissionId: mission.id,
+              biblePattern: mission.pattern,
+              sequenceIndex: index,
+              sequenceSlot: slot,
+              sameTarget:
+                mission.sameTarget === true ||
+                step.sameTarget === true
+            },
+            requires,
+            optional: step.optional === true
+          };
+        });
+
+        return {
+          id: mission.id,
+          title: mission.title,
+          description: mission.description || "",
+          priority: Number(mission.priority) || 0,
+          passivePriorityAxis:
+            mission.passivePriorityAxis ||
+            pattern.autonomyAxis ||
+            null,
+          journalIntro: mission.narrative?.revealed?.[0] || "",
+          bible: {
+            version: VERSION,
+            pattern: mission.pattern
+          },
+          root: {
+            id: `${mission.id}:root`,
+            title: mission.title,
+            type: "group",
+            target: 1,
+            children
+          }
+        };
+      }
 
       const nodeIds = Object.fromEntries(
         (pattern.steps || []).map((step) => [
@@ -118,9 +270,47 @@
         ])
       );
 
-      const children = (pattern.steps || []).map((step) => {
+      const children = [];
+      (pattern.steps || []).forEach((step) => {
         const specific = mission.slots?.[step.slot] || {};
-        return {
+        const requirements =
+          mission.pattern === "COLLECT_THEN_REWARD" &&
+          step.slot === "collect" &&
+          Array.isArray(specific.requirements) &&
+          specific.requirements.length
+            ? specific.requirements
+            : null;
+
+        if (requirements) {
+          requirements.forEach((requirement, index) => {
+            children.push({
+              id: `${mission.id}:${step.slot}:${index + 1}`,
+              title:
+                requirement.title ||
+                specific.title ||
+                `${step.slot} ${index + 1}`,
+              description:
+                requirement.description ||
+                specific.description ||
+                "",
+              type: step.action,
+              target: Math.max(1, Number(requirement.target) || 1),
+              params: {
+                ...(specific.params || {}),
+                ...(requirement.params || {}),
+                bibleMissionId: mission.id,
+                biblePattern: mission.pattern,
+                bibleRequirementIndex: index
+              },
+              requires: (step.requires || [])
+                .map((slot) => nodeIds[slot])
+                .filter(Boolean)
+            });
+          });
+          return;
+        }
+
+        children.push({
           id: nodeIds[step.slot],
           title: specific.title || step.slot,
           description: specific.description || "",
@@ -134,7 +324,7 @@
           requires: (step.requires || [])
             .map((slot) => nodeIds[slot])
             .filter(Boolean)
-        };
+        });
       });
 
       return {
@@ -491,6 +681,14 @@
           objectId: event.objectId || null,
           cuoType: event.cuoType || null
         });
+
+        // triggerOnly signifie : l’événement révèle la mission mais ne lie pas
+        // la suite à l’objet qui a servi de déclencheur. Cette règle était
+        // auparavant portée par bible-runtime-trigger-fix-v19.js.
+        if (mission.triggerOnly === true) {
+          manager.memory?.setFact?.(`bibleTarget:${mission.id}`, null);
+          manager.memory?.save?.();
+        }
 
         // La rencontre déclenche uniquement la révélation. L'autonomie ne doit
         // pas consommer le premier objectif dans la même séquence d'interaction.
@@ -1063,13 +1261,227 @@
       return this.renderSite(site, engine);
     }
 
+
+    researchRewardDefinitions() {
+      const entries = [];
+      this.catalog.forEach((mission) => {
+        const rewards = Array.isArray(mission.rewards)
+          ? mission.rewards
+          : mission.rewards == null
+            ? []
+            : [mission.rewards];
+        rewards.forEach((reward, index) => {
+          if (!reward?.type?.startsWith?.("research.") || !reward.id) return;
+          entries.push({
+            ...clone(reward),
+            missionId: mission.id,
+            missionTitle: mission.title,
+            rewardIndex: index
+          });
+        });
+      });
+      return entries;
+    }
+
+    researchRewardById(id) {
+      const key = String(id || "");
+      return this.researchRewardDefinitions()
+        .find((entry) => entry.id === key) || null;
+    }
+
+    ensureResearchMemory() {
+      const memory = this.manager()?.memory;
+      if (!memory) return null;
+      memory.state.researchUnlocks =
+        memory.state.researchUnlocks || {};
+      return memory;
+    }
+
+    isResearchRewardUnlocked(id) {
+      const memory = this.ensureResearchMemory();
+      return Boolean(
+        memory?.state?.researchUnlocks?.[String(id || "")]
+      );
+    }
+
+    unlockResearchRewards(mission) {
+      const memory = this.ensureResearchMemory();
+      if (!memory) return 0;
+      const rewards = Array.isArray(mission?.rewards)
+        ? mission.rewards
+        : mission?.rewards == null
+          ? []
+          : [mission.rewards];
+      let changed = 0;
+      rewards.forEach((reward, index) => {
+        if (!reward?.type?.startsWith?.("research.") || !reward.id) return;
+        if (memory.state.researchUnlocks[reward.id]) return;
+        memory.state.researchUnlocks[reward.id] = {
+          id: reward.id,
+          type: reward.type,
+          missionId: mission.id,
+          rewardIndex: index,
+          unlockedAt: Date.now()
+        };
+        changed += 1;
+        global.dispatchEvent?.(
+          new CustomEvent("bluefox:research-unlocked", {
+            detail: {
+              id: reward.id,
+              type: reward.type,
+              missionId: mission.id
+            }
+          })
+        );
+      });
+      if (changed) memory.save?.();
+      return changed;
+    }
+
+    migrateLegacyRationUnlock() {
+      const reward = this.researchRewardById("ration-basic-v2");
+      const memory = this.ensureResearchMemory();
+      if (!reward || !memory || memory.state.researchUnlocks[reward.id]) {
+        return false;
+      }
+      try {
+        const raw = global.localStorage?.getItem?.(
+          "bluefox_personal_consumables_v1"
+        );
+        if (!raw) return false;
+        const legacy = JSON.parse(raw);
+        if (legacy?.recipeUnlocked !== true) return false;
+        memory.state.researchUnlocks[reward.id] = {
+          id: reward.id,
+          type: reward.type,
+          missionId: "legacy-ration-migration",
+          rewardIndex: 0,
+          unlockedAt: Date.now(),
+          migrated: true
+        };
+        memory.save?.();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    researchEntries(options = {}) {
+      const unlockedOnly = options.unlockedOnly !== false;
+      return this.researchRewardDefinitions()
+        .map((entry) => ({
+          ...entry,
+          unlocked: this.isResearchRewardUnlocked(entry.id)
+        }))
+        .filter((entry) => !unlockedOnly || entry.unlocked);
+    }
+
+    canCraftResearchReward(id, count = 1, options = {}) {
+      const reward = this.researchRewardById(id);
+      const requested = Math.max(1, Math.floor(Number(count) || 1));
+      if (!reward || !["research.recipe", "research.blueprint"].includes(reward.type)) {
+        return false;
+      }
+      if (!options.ignoreUnlock && !this.isResearchRewardUnlocked(reward.id)) {
+        return false;
+      }
+      if (
+        reward.requiresShelter !== false &&
+        options.ignoreShelter !== true &&
+        BF.canAccessCampInventory?.() !== true
+      ) {
+        return false;
+      }
+      const requirements = Array.isArray(reward.requirements)
+        ? reward.requirements
+        : [];
+      return requirements.every((requirement) => {
+        const key = requirement.inventoryKey || requirement.resource;
+        const quantity =
+          Math.max(0, Number(requirement.quantity) || 0) * requested;
+        return Boolean(
+          key &&
+          BF.progression?.availableInventory?.([key]) >= quantity
+        );
+      });
+    }
+
+    craftResearchReward(id, count = 1, options = {}) {
+      const reward = this.researchRewardById(id);
+      const requested = Math.max(1, Math.floor(Number(count) || 1));
+      if (!this.canCraftResearchReward(id, requested, options)) return 0;
+
+      const requirements = Array.isArray(reward.requirements)
+        ? reward.requirements
+        : [];
+      for (const requirement of requirements) {
+        const key = requirement.inventoryKey || requirement.resource;
+        const quantity =
+          Math.max(0, Number(requirement.quantity) || 0) * requested;
+        const removed = BF.consumeInventoryPool?.([key], quantity) || 0;
+        if (removed !== quantity) return 0;
+      }
+
+      const output = reward.output || {};
+      const objectId = output.objectId || output.inventoryKey || null;
+      const outputQuantity =
+        Math.max(1, Number(output.quantity) || 1) * requested;
+      let created = 0;
+      if (objectId === "ration" && BF.Rations?.add) {
+        created = BF.Rations.add(
+          outputQuantity,
+          options.automatic ? "bac-craft" : "research-craft"
+        );
+      } else if (objectId && BF.progression?.addInventory) {
+        BF.progression.addInventory(objectId, outputQuantity);
+        BF.progression.save?.();
+        BF.progression.publishChange?.("research-crafted", {
+          inventoryKey: objectId,
+          quantity: outputQuantity,
+          researchRewardId: reward.id
+        });
+        created = outputQuantity;
+      }
+
+      if (!created) return 0;
+      const detail = {
+        rewardId: reward.id,
+        category: reward.category || null,
+        objectId,
+        quantity: created,
+        automatic: options.automatic === true,
+        source: options.source || "research-menu",
+        at: Date.now()
+      };
+      global.dispatchEvent?.(
+        new CustomEvent("bluefox:research-crafted", { detail })
+      );
+      global.dispatchEvent?.(
+        new CustomEvent("bluefox:mission-craft", {
+          detail: {
+            recipe: reward.id,
+            objectId,
+            quantity: created,
+            automatic: options.automatic === true,
+            at: detail.at
+          }
+        })
+      );
+      return created;
+    }
+
     onMissionState(state) {
+      this.migrateLegacyRationUnlock();
       for (const mission of this.catalog) {
         const entry = this.findMissionEntry(state, mission.id);
         if (entry) this.emitProgressNarrative(mission, entry);
 
         const lifecycle =
           this.manager()?.memory?.state?.missionLifecycle?.[mission.id];
+
+        if (lifecycle?.status === "completed") {
+          this.unlockResearchRewards(mission);
+        }
 
         if (
           lifecycle?.status === "completed" &&
@@ -1172,6 +1584,7 @@
 
       this.installCompletionGate();
       this.connect();
+      this.migrateLegacyRationUnlock();
       this.started = true;
 
       console.info(
@@ -1190,6 +1603,8 @@
     }
   }
 
+  BibleRuntimeV01.prototype.__sequenceActionsCompilerV1 = true;
+
   const runtime = new BibleRuntimeV01();
 
   // Une seule source de vérité Runtime.
@@ -1204,6 +1619,23 @@
     runtime.activationDiagnostics(id);
   BF.getLastBibleActivationAttempt = () =>
     clone(runtime.lastActivationAttempt);
+
+
+  BF.Research = Object.freeze({
+    list: (options) => runtime.researchEntries(options),
+    get: (id) => runtime.researchRewardById(id),
+    isUnlocked: (id) => runtime.isResearchRewardUnlocked(id),
+    canCraft: (id, count, options) =>
+      runtime.canCraftResearchReward(id, count, options),
+    craft: (id, count, options) =>
+      runtime.craftResearchReward(id, count, options)
+  });
+  BF.getResearchEntries = (options) =>
+    runtime.researchEntries(options);
+  BF.getResearchReward = (id) =>
+    runtime.researchRewardById(id);
+  BF.craftResearchReward = (id, count, options) =>
+    runtime.craftResearchReward(id, count, options);
 
   BF.startBibleMission = (id) => {
     const mission = runtime.byId.get(id);
