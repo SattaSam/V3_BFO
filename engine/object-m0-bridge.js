@@ -273,7 +273,7 @@
       let treeChanged = false;
       tree.availableLeaves().forEach((node) => {
         if (node.isComplete || !eventMatchesNode(event, node)) return;
-        if (node.increment(Math.max(1, Number(event.quantity) || 1))) {
+        if (progressNodeFromEvent(node, event)) {
           changed += 1;
           treeChanged = true;
           if (current?.missionId === missionId && current?.nodeId === node.id) {
@@ -414,6 +414,30 @@
     cuoType: String(resolved.definition?.type || "").toLowerCase()
   });
 
+  const distinctValueFromEvent = (node, event) => {
+    const mode = String(node?.params?.distinctBy || "").trim();
+    if (!mode || mode === "none") return null;
+    if (mode === "instanceId") return String(event?.instanceId || "");
+    if (mode === "objectId") return String(event?.objectId || "").toLowerCase();
+    return null;
+  };
+
+  const distinctValueFromResolved = (node, resolved) => {
+    const mode = String(node?.params?.distinctBy || "").trim();
+    if (!mode || mode === "none") return null;
+    const identity = identityOf(resolved);
+    if (mode === "instanceId") return identity.instanceId;
+    if (mode === "objectId") return identity.objectId;
+    return null;
+  };
+
+  const progressNodeFromEvent = (node, event) => {
+    const amount = Math.max(1, Number(event?.quantity) || 1);
+    const distinctValue = distinctValueFromEvent(node, event);
+    if (distinctValue == null) return node.increment(amount);
+    return node.incrementDistinct?.(distinctValue, 1) || false;
+  };
+
   const matchesBoundTarget = (engine, missionId, resolved) => {
     const bound = engine?.missionManager?.memory?.getFact?.(`bibleTarget:${missionId}`);
     if (!bound || (!bound.instanceId && !bound.objectId && !bound.cuoType)) return true;
@@ -431,11 +455,15 @@
     (engine.currentMap?.interactables || [])
       .filter((object) => {
         if (!object.userData.active) return false;
-        const definition = resolveObject(object).definition;
+        const resolved = resolveObject(object);
+        const definition = resolved.definition;
+        const node = engine?.missionManager?.trees?.get?.(action.missionId)?.find?.(action.nodeId);
+        const distinctValue = node ? distinctValueFromResolved(node, resolved) : null;
+        if (distinctValue != null && node?.hasDistinctValue?.(distinctValue)) return false;
         return definition &&
           canStudy(definition) &&
           matchesStudySubject(definition, action.params?.subject) &&
-          matchesBoundTarget(engine, action.missionId, resolveObject(object));
+          matchesBoundTarget(engine, action.missionId, resolved);
       })
       .sort((left, right) => {
         const distance = (object) => engine.character.root.position.distanceTo(
@@ -463,6 +491,8 @@
         if (!isStudyAction(node.type)) continue;
         if (!matchesStudySubject(definition, node.params?.subject)) continue;
         if (!matchesBoundTarget(engine, missionId, resolved)) continue;
+        const distinctValue = distinctValueFromResolved(node, resolved);
+        if (distinctValue != null && node.hasDistinctValue?.(distinctValue)) continue;
         return {
           missionId,
           nodeId: node.id,
@@ -1069,4 +1099,5 @@
   BF.installObjectM0Bridge = install;
   BF.getObjectM0BridgeState = () => ({ ...installed });
   install();
+
 })(window);

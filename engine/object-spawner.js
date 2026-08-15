@@ -43,6 +43,7 @@
       this.random = options.random || Math.random;
       this.instances = [];
       this.instanceSequence = 0;
+      this.microSceneInstances = [];
       if (!this.THREE) throw new Error("ObjectSpawner nécessite THREE.");
       if (!BF.ObjectLibrary) throw new Error("ObjectSpawner nécessite ObjectLibrary.");
     }
@@ -91,6 +92,25 @@
       const record = { type, definition, instance, instanceId, root, position: { x: position.x || 0, y: position.y || 0, z: position.z || 0 } };
       this.instances.push(record);
       return record;
+    }
+
+    registerMicroSceneInstance(template, records, options = {}, instanceRoot = null) {
+      if (!template?.id) return null;
+      const entry = {
+        id: template.id,
+        instanceId:
+          options.instanceId ||
+          instanceRoot?.uuid ||
+          instanceRoot?.id ||
+          `${template.id}:${this.microSceneInstances.length + 1}`,
+        missionId: template.missionId || null,
+        missionOnly: template.missionOnly === true,
+        rarity: template.rarity || null,
+        instanceRoot: instanceRoot || null,
+        records: Array.isArray(records) ? records : []
+      };
+      this.microSceneInstances.push(entry);
+      return entry;
     }
 
     spawnMicroScene(id, options = {}) {
@@ -210,11 +230,12 @@
           return record;
         });
 
+        this.registerMicroSceneInstance(template, records, options, instanceRoot);
         return records;
       }
 
       const plan = BF.MicroScenes.plan(id, options.origin, options.rotation || 0);
-      return plan.map((entry) => this.spawn(entry.type, {
+      const records = plan.map((entry) => this.spawn(entry.type, {
         ...options,
         position: entry.position,
         rotation: entry.rotation,
@@ -225,6 +246,14 @@
         force: options.force ?? true,
         source: id
       })).filter(Boolean);
+      records.forEach((record) => {
+        if (record?.root?.userData) record.root.userData.microSceneId = template?.id || id;
+        if (record?.instance?.hitbox?.userData) {
+          record.instance.hitbox.userData.microSceneId = template?.id || id;
+        }
+      });
+      this.registerMicroSceneInstance(template || { id }, records, options, null);
+      return records;
     }
 
     populateBiome(biome, options = {}) {
@@ -268,6 +297,8 @@
       if (!definition || !group || !bounds) {
         throw new Error("ObjectSpawner.populateMap nécessite definition, group et bounds.");
       }
+      group.userData = group.userData || {};
+      group.userData.microScenes = this.microSceneInstances;
 
       const random = options.random || this.random;
       const next = () => typeof random === "function" ? random() : random.next();
@@ -517,6 +548,14 @@
       );
       const magneticContext = !tutorialProtected && /magnet/.test(generationContext);
       const magneticDesert = magneticContext && /desert/.test(generationContext);
+      const levitatingRockDesert = !tutorialProtected &&
+        magneticDesert &&
+        /roch|rock/.test(generationContext) &&
+        /levitat|flott|floating|suspend/.test(generationContext);
+      const floatingSwamp = !tutorialProtected &&
+        (population.profileId === "swamp" || /marais|swamp/.test(generationContext)) &&
+        /ile|island/.test(generationContext) &&
+        /flott|floating|suspend/.test(generationContext);
       const glassSteppe = /steppe.*verre|verre.*steppe|glass.*steppe|steppe.*glass/.test(generationContext);
       const vitrifiedLand = /lande vitrifi|vitrified.*heath|vitrified/.test(generationContext);
       const fungalMushroomMap =
@@ -541,8 +580,8 @@
       })();
       const requiresSuspendedIsland = !tutorialProtected && (
         dedicatedFloatingIslands ||
-        (definition.generator?.biomeId === "magnetic" && /flott|suspend|levitat|floating.rock/.test(generationContext)) ||
-        (population.profileId === "swamp" && /marais|swamp/.test(generationContext) && /flott|floating/.test(generationContext) && /extraterrestre|alien/.test(generationContext))
+        levitatingRockDesert ||
+        floatingSwamp
       );
       const suspendedIslandScene = requiresSuspendedIsland
         ? BF.MicroScenes.get("suspended_island")
@@ -805,6 +844,39 @@
         }
       });
 
+      // Les trois signatures validées reçoivent systématiquement une MSC
+      // îlot suspendu. Les autres contextes magnétiques/alien restent probabilistes.
+      let guaranteedSuspendedIslandSpawned = false;
+      if (suspendedIslandScene && requiresSuspendedIsland) {
+        const center = randomPosition(
+          8,
+          25,
+          Math.max(4.2, Number(suspendedIslandScene.radius) || 0),
+          "stele"
+        );
+        if (center) {
+          this.spawnMicroScene(suspendedIslandScene.id, {
+            origin: { x: center.x, y: 0, z: center.z },
+            rotation: next() * Math.PI * 2,
+            scene: group,
+            palette: definition.palette,
+            source: "map-population-guaranteed-suspended-island"
+          });
+          occupied.push({
+            x: center.x,
+            z: center.z,
+            radius: Math.max(4.2, Number(suspendedIslandScene.radius) || 0)
+          });
+          suspendedIslandScene.objects.forEach((entry) => {
+            placedTypeCounts.set(
+              entry.type,
+              (placedTypeCounts.get(entry.type) || 0) + 1
+            );
+          });
+          guaranteedSuspendedIslandSpawned = true;
+        }
+      }
+
       // Les MSC Custom conservent ici leurs pivots/rotations/hauteurs CUO.
       const customFloatingSpawned = floatingIslandsCustomScene && next() < 0.78
         ? spawnPreservedCustomScene(floatingIslandsCustomScene, 8)
@@ -863,7 +935,8 @@
             .includes(definition.generator?.biomeId) ? 0.72 : 0.34;
           const specialScene = featuredGeneratedScenes[landmarkIndex]
             ? featuredGeneratedScenes[landmarkIndex]
-            : landmarkIndex === 0 && suspendedIslandScene && !customFloatingSpawned
+            : landmarkIndex === 0 && suspendedIslandScene &&
+              !customFloatingSpawned && !guaranteedSuspendedIslandSpawned
             ? suspendedIslandScene
             : landmarkIndex === 0 && generatedSpecialScenes.length && next() < specialChance
               ? generatedSpecialScenes[Math.floor(next() * generatedSpecialScenes.length)]
@@ -904,7 +977,17 @@
         landmarkCount: landmarks.length ? 1 : landmarkCount,
         resourceFamilies: population.resourceFamilies,
         richness: population.richness,
-        requiredSuspendedIsland: Boolean(suspendedIslandScene)
+        requiredSuspendedIsland: Boolean(suspendedIslandScene),
+        guaranteedSuspendedIslandSpawned,
+        suspendedIslandRule: requiresSuspendedIsland
+          ? dedicatedFloatingIslands
+            ? "floating-islands"
+            : levitatingRockDesert
+              ? "levitating-rock-desert"
+              : floatingSwamp
+                ? "floating-swamp"
+                : null
+          : null
       };
     }
 
@@ -914,6 +997,7 @@
         if (dispose && BF.disposeObject && record.root) BF.disposeObject(record.root);
       });
       this.instances.length = 0;
+      this.microSceneInstances.length = 0;
     }
   }
 

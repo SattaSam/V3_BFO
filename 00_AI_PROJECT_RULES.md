@@ -1,3 +1,5 @@
+FIRST FILE TO READ — Any AI or developer working on this repository MUST read this file before inspecting any other project file.
+
 RÈGLE ABSOLUE — DOCUMENTS DE RÉFÉRENCE
 Ne jamais deviner les documents de référence.
 Ne jamais utiliser un DOCX ou une TODO historique comme référentiel par défaut.
