@@ -2,7 +2,7 @@
 "use strict";
 const KEY="bluefox_odyssey_save_v1",BUDGET=225;
 const AUTONOMY_KEY="bluefox_autonomy_mode_v1";
-const AUTONOMY_MODES=["off","movement","full"];
+const AUTONOMY_MODES=["off","movement-only","full"];
 const AX={exploration:"exploration",collecte:"collection",collection:"collection",recherche:"research",relations:"relations",relation:"relations",repos:"survival",survie:"survival","repos / survie":"survival","repos/survie":"survival"};
 const PAIR_TIP={
 "curieux|prudent":"Curieux : Observe spontanément ce qui l'entoure. ↑ Exploration, observation et recherche.\nPrudent : Limite les prises de risque. ↑ Sécurité, survie et retour à la base.",
@@ -15,11 +15,14 @@ const norm=v=>String(v||"").toLocaleLowerCase("fr").normalize("NFD").replace(/[\
 const clamp=v=>Math.max(0,Math.min(100,Math.round(Number(v)||0)));
 const axisFor=v=>AX[norm(v)]||null;
 const split=v=>String(v||"").split(/\s+[—–-]\s+/).map(x=>x.trim()).filter(Boolean);
-const autonomyMode=()=>AUTONOMY_MODES.includes(localStorage.getItem(AUTONOMY_KEY))?localStorage.getItem(AUTONOMY_KEY):"full";
+const normalizeAutonomyMode=mode=>mode==="movement"?"movement-only":mode;
+const autonomyMode=()=>{const mode=normalizeAutonomyMode(localStorage.getItem(AUTONOMY_KEY));return AUTONOMY_MODES.includes(mode)?mode:"full";};
 function setAutonomyMode(mode){
+  mode=normalizeAutonomyMode(mode);
   if(!AUTONOMY_MODES.includes(mode)) return false;
   localStorage.setItem(AUTONOMY_KEY,mode);
-  global.BlueFox3D?.setAutonomyMode?.(mode);
+  global.BlueFox3D=global.BlueFox3D||{};
+  global.BlueFox3D.autonomyMode=mode;
   global.dispatchEvent(new CustomEvent("bluefox:autonomy-mode",{detail:{mode}}));
   document.querySelectorAll(".bac-autonomy-choice").forEach(button=>{
     button.classList.toggle("active",button.dataset.mode===mode);
@@ -78,7 +81,7 @@ function ensureAutonomyControl(settings){
       <p>Ce réglage modifie fortement le comportement de BlueFox. Pendant les phases tutoriel, utilise-le seulement pour simuler le niveau d’autonomie attendu.</p>
       <div class="bac-autonomy-choices" role="group" aria-label="Niveau d’autonomie">
         <button type="button" class="bac-autonomy-choice" data-mode="off">Off</button>
-        <button type="button" class="bac-autonomy-choice" data-mode="movement">Déplacements</button>
+        <button type="button" class="bac-autonomy-choice" data-mode="movement-only">Déplacements</button>
         <button type="button" class="bac-autonomy-choice" data-mode="full">Full</button>
       </div>
     </div>`;
@@ -105,5 +108,5 @@ function ensureAutonomyControl(settings){
 }
 function enhance(){const s=document.querySelector(".settings-content");if(!s)return false;s.querySelectorAll(".slider-row").forEach(row=>{const raw=row.querySelector("span")?.textContent||"";if(norm(raw.replace(/\s+\d+\s*%.*$/,"")).toLowerCase()==="construction"){row.remove();return;}if(!row.classList.contains("trait-row"))return;updateTrait(row);tooltips(row);const input=row.querySelector('input[type="range"]');if(input&&input.dataset.bluefoxBalanceConnected!=="final"){input.dataset.bluefoxBalanceConnected="final";const run=()=>{updateTrait(row);tooltips(row)};input.addEventListener("input",run);input.addEventListener("change",run);}});connect(s);ensureAutonomyControl(s);return true;}
 let scheduled=false;function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;enhance();});}
-guard();new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});global.addEventListener("DOMContentLoaded",schedule,{once:true});global.BlueFox3D=global.BlueFox3D||{};global.BlueFox3D.refreshSettingsUI=enhance;
+guard();global.BlueFox3D=global.BlueFox3D||{};global.BlueFox3D.getAutonomyMode=autonomyMode;global.BlueFox3D.setAutonomyMode=setAutonomyMode;global.BlueFox3D.autonomyMode=autonomyMode();new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});global.addEventListener("DOMContentLoaded",schedule,{once:true});global.BlueFox3D.refreshSettingsUI=enhance;
 })(window);
