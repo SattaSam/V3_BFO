@@ -1601,7 +1601,7 @@
         candidates.push({ point, pathLength });
       }
       candidates.sort((a, b) => a.pathLength - b.pathLength);
-      return {
+      const result = {
         point: candidates[0]?.point || this.character.pathPlanner.nearestClearGoal(
           anchor.position.clone().add(fromResource.normalize()
             .multiplyScalar(approachDistance)),
@@ -1611,6 +1611,15 @@
         ),
         approachDistance
       };
+      if (object?.userData && result.point) {
+        object.userData.__cachedInteractionApproach = {
+          point: result.point.clone?.() || result.point,
+          approachDistance: result.approachDistance,
+          at: performance.now(),
+          mapId: this.currentMapId
+        };
+      }
+      return result;
     }
 
 
@@ -1708,10 +1717,23 @@
 
     targetInteraction(object, retry = false) {
       this.pendingZoneExploration = null;
-      const approach = this.interactionApproachPoint(
-        object,
-        retry ? this.interactionApproachAttempts : 0
+      const cachedApproach = object?.userData?.__cachedInteractionApproach;
+      const cachedFresh = Boolean(
+        !retry &&
+        cachedApproach?.point &&
+        cachedApproach.mapId === this.currentMapId &&
+        performance.now() - Number(cachedApproach.at || 0) < 1500
       );
+      const approach = cachedFresh
+        ? {
+            point: cachedApproach.point.clone?.() || cachedApproach.point,
+            approachDistance: cachedApproach.approachDistance
+          }
+        : this.interactionApproachPoint(
+            object,
+            retry ? this.interactionApproachAttempts : 0
+          );
+      if (object?.userData) delete object.userData.__cachedInteractionApproach;
       this.pendingInteraction = object;
       object.userData.approachDistance = approach.approachDistance;
       object.userData.interactionProfile = this.interactionProfile(object);
