@@ -1,7 +1,7 @@
 Ces fichiers sont les documents de référence officiels maintenus :
 - MASTER.md
 - ARCHITECTURE_TECHNIQUE.md
-- ROADMAP_TODO_RUNTIME_CLOTURE_CUO_PRIORITAIRE.md (seule TODO active)
+- ROADMAP_TODO.md (seule TODO active)
 - DEV_HISTORIQUE.md
 - MUSIC_SYSTEM_V1.md
 
