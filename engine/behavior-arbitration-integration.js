@@ -3,7 +3,7 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions || {};
-  const INTEGRATION_VERSION = "bac-knowledge-routing-r16c";
+  const INTEGRATION_VERSION = "bac-knowledge-routing-r17-ration-drain";
   const PREFERENCE_DECAY_MS = 20 * 60 * 1000;
   const PREFERENCE_WINDOW_MS = 4 * 60 * 1000;
   const PREFERENCE_COMMIT_MS = 3 * 60 * 1000;
@@ -100,6 +100,21 @@
       def.id ||
       ""
     ).trim().toLowerCase();
+  };
+
+  const rationPolicy = () => BF.RationPolicy || null;
+  const rationProfile = () => rationPolicy()?.profile?.() || null;
+  const rationIngredientSet = () =>
+    new Set((rationPolicy()?.ingredientKeys?.() || []).map((value) =>
+      String(value || "").toLowerCase()
+    ));
+  const rationIngredientObjects = (objects = []) => {
+    const ingredients = rationIngredientSet();
+    if (!ingredients.size) return [];
+    return objects.filter((object) =>
+      ingredients.has(objectKind(object)) &&
+      isCollectableDefinition(objectDefinition(object))
+    );
   };
   const scoreModifier = (axis, baseScore) => {
     const BAC = getBAC();
@@ -966,6 +981,31 @@
       this.lastAutonomyAt = now;
       const interactables = (this.currentMap?.interactables || [])
         .filter((object) => this.canInteractWith(object, now));
+      const currentRationProfile = rationProfile();
+      const rationIngredients = currentRationProfile?.shouldCollect
+        ? rationIngredientObjects(interactables)
+        : [];
+      const rationPolicyState = rationPolicy();
+      const survivalCritical =
+        Boolean(
+          survival.needs?.criticalRest ||
+          survival.needs?.food ||
+          Number(survival.energy) < 40 ||
+          Number(survival.food) < 40
+        );
+      const rationMissing = currentRationProfile
+        ? Math.max(
+            0,
+            Number(currentRationProfile.targetMin) -
+            (Number(BF.Rations?.snapshot?.().rations) || 0)
+          )
+        : 0;
+      const rationCraftable =
+        currentRationProfile?.shouldCraft &&
+        rationPolicyState?.autoCraftEnabled?.() === true &&
+        rationPolicyState?.campAccessible?.() === true
+          ? rationPolicyState.craftableCount?.(rationMissing) || 0
+          : 0;
       const activePreference = preferredEntry();
       const preferredCollectables = activePreference
         ? interactables.filter((object) =>
@@ -1036,6 +1076,49 @@
             lastResearchRoutineSourceAt = newestResearchMaterialAt(this);
             this.startRoutine("research", now, 6500);
           }
+        },
+        {
+          id: "survival-ration-craft",
+          axis: "survival",
+          baseWeight:
+            currentRationProfile?.level === "critical" ? 46 :
+            currentRationProfile?.level === "low" ? 18 : 0,
+          available: rationCraftable > 0,
+          execute: () => {
+            const crafted = BF.Research?.craft?.(
+              rationPolicyState.recipeId,
+              rationCraftable,
+              {
+                automatic: true,
+                source: "bac-survival"
+              }
+            ) || 0;
+            if (crafted > 0) {
+              this.callbacks?.onStatus?.(
+                `BlueFox profite du camp pour préparer ${crafted} ration${crafted > 1 ? "s" : ""}.`
+              );
+            }
+          }
+        },
+        {
+          id: "survival-ration-collect",
+          axis: "survival",
+          baseWeight:
+            currentRationProfile?.level === "critical" && survivalCritical
+              ? 54
+              : currentRationProfile?.level === "low"
+                ? 12
+                : 0,
+          available:
+            Boolean(
+              currentRationProfile?.shouldCollect &&
+              rationIngredients.length
+            ),
+          execute: () => commitTarget(
+            this,
+            chooseLocalTarget(this, rationIngredients, "collection"),
+            "collection"
+          )
         },
         {
           id: "relations-object",
@@ -1198,8 +1281,7 @@
       );
       return { ...base, installed: worldInstalled, worldOverlayInstalled: worldInstalled, integrationVersion: engine?.__bacRoutingVersion || INTEGRATION_VERSION, currentEngineAvailable: Boolean(engine),
         autonomyHook: engine?.updateAutonomy?.name || "",
-        autonomyUnderlyingHook: engine?.__autonomyBeforeRationAI?.name || "",
-        rationAutonomyDecision: engine?.__lastRationAutonomyDecision || null, targetPreference: (() => { const e = preferredEntry(); return e ? { kind:e.kind, count:e.count, strength:Number(e.strength.toFixed(2)), ageMs:Date.now()-e.lastAt, lastAxis:e.lastAxis } : null; })(),
+        rationPolicy: BF.RationPolicy?.profile?.() || null, targetPreference: (() => { const e = preferredEntry(); return e ? { kind:e.kind, count:e.count, strength:Number(e.strength.toFixed(2)), ageMs:Date.now()-e.lastAt, lastAxis:e.lastAxis } : null; })(),
         lastTargetDecision,
         preferenceCommitment: (() => {
           const e = preferredEntry();
