@@ -29,14 +29,7 @@
         : Object.values(BF.BibleCatalog || {});
       this.byId = new Map(this.catalog.map((mission) => [mission.id, mission]));
       this.state = this.loadState();
-
-      // Migration de structure uniquement : l'ancien runtime utilisait une
-      // seconde vérité "revealed/completed" qui pouvait empêcher une mission
-      // de se réactiver alors que MissionManager ne l'avait plus en mémoire.
-      // On ne réinitialise JAMAIS la mémoire de mission ici.
-      try {
-        global.localStorage?.removeItem?.("bluefox_bible_runtime_v0");
-      } catch {}
+      try { global.localStorage?.removeItem?.("bluefox_bible_runtime_v0"); } catch {}
 
       this.unsubscribeObjectEvents = null;
       this.activationEventIds = new Set();
@@ -47,6 +40,8 @@
         this.onMissionState(event.detail || BF.getMissionState?.() || {});
       this.boundMapTransition = (event) =>
         this.onMapTransition(event.detail || {});
+      this.boundResearchCrafted = (event) =>
+        this.onResearchCrafted(event.detail || {});
     }
 
     defaultState() {
@@ -82,10 +77,7 @@
 
     saveState() {
       try {
-        global.localStorage?.setItem?.(
-          STORAGE_KEY,
-          JSON.stringify(this.state)
-        );
+        global.localStorage?.setItem?.(STORAGE_KEY, JSON.stringify(this.state));
         return true;
       } catch {
         return false;
@@ -94,174 +86,16 @@
 
     validate() {
       if (!BF.BibleContractV01?.validateCatalog) {
-        return {
-          ok: false,
-          errors: ["BibleContractV01 indisponible."],
-          warnings: []
-        };
+        return { ok: false, errors: ["BibleContractV01 indisponible."], warnings: [] };
       }
-
-      const base = BF.BibleContractV01.validateCatalog(
-        this.catalog,
-        this.patterns,
-        { compatibility: "strict" }
+      return BF.BibleContractV01.validateCatalog(
+        this.catalog, this.patterns, { compatibility: "strict" }
       );
-
-      const sequenceMissions = this.catalog.filter(
-        (mission) => mission?.pattern === "SEQUENCE_ACTIONS"
-      );
-      if (!sequenceMissions.length) return base;
-
-      const sequenceIds = new Set(
-        sequenceMissions.map((mission) => mission.id)
-      );
-      const errors = (base.errors || []).filter((message) =>
-        ![...sequenceIds].some((id) =>
-          message.startsWith(`${id} · slots`)
-        )
-      );
-
-      sequenceMissions.forEach((mission) => {
-        const steps = asArray(mission.sequence)
-          .filter((step) => step && typeof step === "object");
-        if (steps.length < 2) {
-          errors.push(
-            `${mission.id || "<sans-id>"} · sequence : minimum 2 étapes.`
-          );
-          return;
-        }
-
-        const slots = new Set();
-        steps.forEach((step, index) => {
-          const slot = step.slot || `step${index + 1}`;
-          if (slots.has(slot)) {
-            errors.push(
-              `${mission.id} · sequence[${index}].slot : identifiant dupliqué.`
-            );
-          }
-          slots.add(slot);
-
-          const action =
-            Missions.normalizeActionType?.(step.action) ||
-            String(step.action || "").trim().toLowerCase();
-          if (
-            !Object.values(Missions.ActionType || {}).includes(action)
-          ) {
-            errors.push(
-              `${mission.id} · sequence[${index}].action : action non supportée.`
-            );
-          }
-          if (
-            step.target != null &&
-            (
-              !Number.isFinite(Number(step.target)) ||
-              Number(step.target) < 1
-            )
-          ) {
-            errors.push(
-              `${mission.id} · sequence[${index}].target : doit être >= 1.`
-            );
-          }
-        });
-
-        steps.forEach((step, index) => {
-          asArray(step.requires).forEach((required) => {
-            if (!slots.has(required)) {
-              errors.push(
-                `${mission.id} · sequence[${index}].requires : slot inconnu ${required}.`
-              );
-            }
-          });
-        });
-      });
-
-      return Object.freeze({
-        ...base,
-        ok: errors.length === 0,
-        errors: Object.freeze(errors)
-      });
     }
 
     compileMission(mission) {
       const pattern = this.patterns[mission?.pattern];
       if (!mission || !pattern) return null;
-
-      if (mission.pattern === "SEQUENCE_ACTIONS") {
-        const steps = asArray(mission.sequence)
-          .filter((step) => step && typeof step === "object");
-        if (steps.length < 2) return null;
-
-        const nodeIds = steps.map((step, index) =>
-          `${mission.id}:${step.slot || `step${index + 1}`}`
-        );
-
-        const children = steps.map((step, index) => {
-          const slot = step.slot || `step${index + 1}`;
-          const requires = step.requires != null
-            ? asArray(step.requires)
-                .map((required) => {
-                  const requiredIndex = steps.findIndex(
-                    (candidate, candidateIndex) =>
-                      (
-                        candidate.slot ||
-                        `step${candidateIndex + 1}`
-                      ) === required
-                  );
-                  return requiredIndex >= 0
-                    ? nodeIds[requiredIndex]
-                    : null;
-                })
-                .filter(Boolean)
-            : index > 0
-              ? [nodeIds[index - 1]]
-              : [];
-
-          return {
-            id: nodeIds[index],
-            title: step.title || slot,
-            description: step.description || "",
-            type:
-              Missions.normalizeActionType?.(step.action) ||
-              String(step.action || "").trim().toLowerCase(),
-            target: Math.max(1, Number(step.target) || 1),
-            params: {
-              ...(step.params || {}),
-              bibleMissionId: mission.id,
-              biblePattern: mission.pattern,
-              sequenceIndex: index,
-              sequenceSlot: slot,
-              sameTarget:
-                mission.sameTarget === true ||
-                step.sameTarget === true
-            },
-            requires,
-            optional: step.optional === true
-          };
-        });
-
-        return {
-          id: mission.id,
-          title: mission.title,
-          description: mission.description || "",
-          priority: Number(mission.priority) || 0,
-          passivePriorityAxis:
-            mission.passivePriorityAxis ||
-            pattern.autonomyAxis ||
-            null,
-          journalIntro: mission.narrative?.revealed?.[0] || "",
-          bible: {
-            version: VERSION,
-            pattern: mission.pattern
-          },
-          root: {
-            id: `${mission.id}:root`,
-            title: mission.title,
-            type: "group",
-            target: 1,
-            children
-          }
-        };
-      }
 
       const nodeIds = Object.fromEntries(
         (pattern.steps || []).map((step) => [
@@ -314,7 +148,7 @@
           id: nodeIds[step.slot],
           title: specific.title || step.slot,
           description: specific.description || "",
-          type: step.action,
+          type: specific.params?.missionEventType || step.action,
           target: Math.max(1, Number(specific.target) || 1),
           params: {
             ...(specific.params || {}),
@@ -337,10 +171,7 @@
           pattern.autonomyAxis ||
           null,
         journalIntro: mission.narrative?.revealed?.[0] || "",
-        bible: {
-          version: VERSION,
-          pattern: mission.pattern
-        },
+        bible: { version: VERSION, pattern: mission.pattern },
         root: {
           id: `${mission.id}:root`,
           title: mission.title,
@@ -357,25 +188,17 @@
         console.error("[BlueFox] Bible Runtime V0.1 : contrat invalide.", report);
         return { ...report, registered: 0 };
       }
-
       const definitions = this.catalog
         .map((mission) => this.compileMission(mission))
         .filter(Boolean);
-
       const registered =
         typeof BF.registerMissionDefinitions === "function"
           ? BF.registerMissionDefinitions(definitions)
           : 0;
-
-      return {
-        ...report,
-        registered: Number(registered) || definitions.length
-      };
+      return { ...report, registered: Number(registered) || definitions.length };
     }
 
-    manager() {
-      return BF.currentEngine?.missionManager || null;
-    }
+    manager() { return BF.currentEngine?.missionManager || null; }
 
     missionLifecycle(missionId) {
       const manager = this.manager();
@@ -386,7 +209,6 @@
         (BF.getMissionState?.()?.missions || []).find((entry) =>
           (entry.missionId || entry.id) === missionId
         ) || null;
-
       const status =
         lifecycle?.status ||
         publicEntry?.lifecycleStatus ||
@@ -437,9 +259,6 @@
       );
 
       const subject = lower(
-        // Sur le dépôt propre, une ressource peut avoir family="fiber"
-        // tout en ayant knowledgeFamily="flora". La sémantique narrative
-        // doit donc privilégier la famille de connaissance.
         definition?.semantic?.subject ||
         event?.knowledgeFamily ||
         definition?.knowledge?.family ||
@@ -487,6 +306,7 @@
 
     eventMatchesTrigger(trigger, event) {
       if (!trigger || !event || trigger.type !== event.type) return false;
+
       if (
         trigger.studyOnly === true &&
         !["interaction.observe", "interaction.inspect", "interaction.analyze"].includes(
@@ -501,12 +321,16 @@
       ];
 
       for (const key of exactKeys) {
-        if (
-          trigger[key] != null &&
-          lower(trigger[key]) !== lower(event[key])
-        ) {
+        if (trigger[key] != null && lower(trigger[key]) !== lower(event[key])) {
           return false;
         }
+      }
+
+      if (
+        trigger.kindsAny?.length &&
+        !trigger.kindsAny.some((kind) => lower(kind) === lower(event.kind))
+      ) {
+        return false;
       }
 
       const eventTags = new Set(asArray(event.tags).map(lower));
@@ -514,16 +338,12 @@
       if (
         trigger.tagsAny?.length &&
         !trigger.tagsAny.some((tag) => eventTags.has(lower(tag)))
-      ) {
-        return false;
-      }
+      ) return false;
 
       if (
         trigger.tagsAll?.length &&
         !trigger.tagsAll.every((tag) => eventTags.has(lower(tag)))
-      ) {
-        return false;
-      }
+      ) return false;
 
       if (trigger.threshold != null) {
         const value = Number(
@@ -566,10 +386,24 @@
       return Number(this.state.triggerCounts[key]) || 0;
     }
 
+    activationGateSatisfied(mission) {
+      const gate = mission?.activationGate;
+      if (!gate) return true;
+      if (gate.type !== "site.stage") return false;
+
+      const manager = this.manager();
+      const currentMapId = BF.currentEngine?.currentMapId;
+      const site = manager?.memory?.state?.siteProgression?.[currentMapId];
+      const minimumStage = Math.max(1, Number(gate.minimumStage) || 1);
+
+      return Number(site?.stage) >= minimumStage;
+    }
+
     prerequisitesSatisfied(mission) {
-      return asArray(mission?.prerequisites).every((missionId) =>
-        this.missionLifecycle(missionId).completed
-      );
+      return this.activationGateSatisfied(mission) &&
+        asArray(mission?.prerequisites).every((missionId) =>
+          this.missionLifecycle(missionId).completed
+        );
     }
 
     emitNarrative(mission, moment, context = {}) {
@@ -577,13 +411,8 @@
       if (!lines.length) return false;
 
       lines.forEach((item, index) => {
-        const text =
-          typeof item === "string"
-            ? item
-            : item?.text || "";
-
+        const text = typeof item === "string" ? item : item?.text || "";
         if (!text) return;
-
         BF.addJournalEntry?.({
           id: `bible:${mission.id}:${moment}:${index}:${Date.now()}`,
           type: "bible",
@@ -594,52 +423,15 @@
           important: moment === "revealed" || moment === "completed"
         });
       });
-
       return true;
     }
 
     activateMission(mission, event = {}) {
       const manager = this.manager();
-      const diagnostic = {
-        at: Date.now(),
-        missionId: mission?.id || null,
-        triggerType: event?.type || null,
-        subject: event?.subject || null,
-        objectId: event?.objectId || null,
-        managerAvailable: Boolean(manager),
-        definitionExists: Boolean(
-          mission?.id && Missions.getDefinition?.(mission.id)
-        ),
-        lifecycleBefore: null,
-        startResult: false,
-        activated: false,
-        lifecycleAfter: null,
-        error: null
-      };
+      if (!mission?.id || !manager) return false;
 
-      if (!mission?.id || !manager) {
-        diagnostic.error = !manager
-          ? "MissionManager indisponible"
-          : "Mission invalide";
-        this.lastActivationAttempt = diagnostic;
-        return false;
-      }
-
-      let lifecycleState = this.missionLifecycle(mission.id);
-      diagnostic.lifecycleBefore = clone(lifecycleState.lifecycle);
-
-
-      if (lifecycleState.active) {
-        diagnostic.error = "Mission déjà active";
-        this.lastActivationAttempt = diagnostic;
-        return false;
-      }
-
-      if (lifecycleState.completed) {
-        diagnostic.error = "Mission déjà terminée";
-        this.lastActivationAttempt = diagnostic;
-        return false;
-      }
+      const lifecycleState = this.missionLifecycle(mission.id);
+      if (lifecycleState.active || lifecycleState.completed) return false;
 
       if (!Missions.getDefinition?.(mission.id)) {
         const compiled = this.compileMission(mission);
@@ -648,83 +440,31 @@
         }
       }
 
-      if (!Missions.getDefinition?.(mission.id)) {
-        diagnostic.error = "Définition mission absente";
-        this.lastActivationAttempt = diagnostic;
-        return false;
+      if (!Missions.getDefinition?.(mission.id)) return false;
+
+      const started =
+        manager.startMission(mission.id, {
+          primary: false,
+          autoPrimaryEligible: false,
+          prerequisites: asArray(mission.prerequisites),
+          source: "bible-runtime-v0.1",
+          reason: `Déclencheur Bible V0.1 : ${event.type || "event"}`
+        }) === true;
+
+      if (!started) return false;
+
+      if (mission.triggerOnly === true) {
+        manager.memory?.setFact?.(`bibleTarget:${mission.id}`, null);
+        manager.memory?.save?.();
       }
 
-      try {
-        diagnostic.startResult =
-          manager.startMission(mission.id, {
-            primary: false,
-            autoPrimaryEligible: false,
-            prerequisites: asArray(mission.prerequisites),
-            source: "bible-runtime-v0.1",
-            reason: `Déclencheur Bible V0.1 : ${event.type || "event"}`
-          }) === true;
+      manager.retryAfter = Math.max(
+        Number(manager.retryAfter || 0),
+        performance.now() + 3500
+      );
 
-        const after = this.missionLifecycle(mission.id);
-        diagnostic.lifecycleAfter = clone(after.lifecycle);
-        diagnostic.activated = after.active || Boolean(after.tree);
-
-        if (!diagnostic.startResult || !diagnostic.activated) {
-          diagnostic.error =
-            "MissionManager n'a pas confirmé l'activation";
-          this.lastActivationAttempt = diagnostic;
-          return false;
-        }
-
-        manager.memory?.setFact?.(`bibleTarget:${mission.id}`, {
-          binding: mission.targetBinding || "definition",
-          instanceId: event.instanceId || null,
-          objectId: event.objectId || null,
-          cuoType: event.cuoType || null
-        });
-
-        // triggerOnly signifie : l’événement révèle la mission mais ne lie pas
-        // la suite à l’objet qui a servi de déclencheur. Cette règle était
-        // auparavant portée par bible-runtime-trigger-fix-v19.js.
-        if (mission.triggerOnly === true) {
-          manager.memory?.setFact?.(`bibleTarget:${mission.id}`, null);
-          manager.memory?.save?.();
-        }
-
-        // La rencontre déclenche uniquement la révélation. L'autonomie ne doit
-        // pas consommer le premier objectif dans la même séquence d'interaction.
-        // Une action manuelle reste immédiatement possible et sera forcée par
-        // la directive de mission ; l'autonomie reprendra à la séquence suivante.
-        manager.retryAfter = Math.max(
-          Number(manager.retryAfter || 0),
-          performance.now() + 3500
-        );
-
-        this.emitNarrative(mission, "revealed", event);
-        this.lastActivationAttempt = diagnostic;
-
-        global.dispatchEvent?.(
-          new CustomEvent("bluefox:bible-mission-revealed-v0-1", {
-            detail: {
-              missionId: mission.id,
-              title: mission.title,
-              trigger: event.type || null,
-              subject: event.subject || null,
-              objectId: event.objectId || null
-            }
-          })
-        );
-
-        return true;
-      } catch (error) {
-        diagnostic.error = error?.message || String(error);
-        this.lastActivationAttempt = diagnostic;
-        console.error(
-          "[BlueFox] Bible Runtime V0.1 : activation impossible.",
-          diagnostic,
-          error
-        );
-        return false;
-      }
+      this.emitNarrative(mission, "revealed", event);
+      return true;
     }
 
     consumeTriggerEvent(event, options = {}) {
@@ -734,21 +474,12 @@
         if (!this.eventMatchesTrigger(mission.trigger, event)) continue;
 
         const lifecycleState = this.missionLifecycle(mission.id);
-
-        if (lifecycleState.completed) continue;
-
-        if (lifecycleState.active) continue;
-
-        // Un événement géographique ne prépare pas silencieusement une mission
-        // dont l'arc précédent n'est pas terminé.
+        if (lifecycleState.completed || lifecycleState.active) continue;
         if (!this.prerequisitesSatisfied(mission)) continue;
 
         const count = this.incrementTrigger(mission, event);
         const required = Math.max(1, Number(mission.trigger?.count) || 1);
-
-        if (count >= required) {
-          candidates.push(mission);
-        }
+        if (count >= required) candidates.push(mission);
       }
 
       candidates.sort((left, right) =>
@@ -759,42 +490,31 @@
       const selected = options.allowActivation === false
         ? null
         : candidates[0] || null;
-      const activatedMissionId = selected && this.activateMission(selected, event)
-        ? selected.id
-        : null;
 
       return {
         matched: candidates.length,
-        activatedMissionId
+        activatedMissionId:
+          selected && this.activateMission(selected, event)
+            ? selected.id
+            : null
       };
     }
 
     onObjectEvent(rawEvent) {
       const normalized = this.normalizeObjectEvent(rawEvent);
       if (!normalized) return;
-      const activeBefore = new Set(
-        this.catalog
-          .filter((mission) => this.missionLifecycle(mission.id).active)
-          .map((mission) => mission.id)
-      );
 
-      // 1) Evénement concret : collect/analyze/observe/etc.
       let result = this.consumeTriggerEvent(normalized);
       let allowActivation = !result.activatedMissionId;
 
-      // 2) Evénement narratif générique : toute interaction réelle avec
-      // l'objet. Il est volontairement indépendant de l'état "connu" CUO.
-      // Cela permet à une mission ajoutée plus tard de se révéler même si
-      // BlueFox a déjà observé/analysé/collecté ce type d'objet auparavant.
       result = this.consumeTriggerEvent({
         ...normalized,
         type: "interaction.any",
         amount: 1
       }, { allowActivation });
+
       allowActivation = allowActivation && !result.activatedMissionId;
 
-      // 3) Première interaction d'étude : conservée comme vocabulaire
-      // distinct pour les missions qui exigent explicitement une découverte.
       if ([
         "interaction.observe",
         "interaction.inspect",
@@ -806,16 +526,6 @@
           amount: 1
         }, { allowActivation });
       }
-
-      const activatedNow = this.catalog.some((mission) =>
-        !activeBefore.has(mission.id) && this.missionLifecycle(mission.id).active
-      );
-      if (activatedNow && rawEvent.id) {
-        this.activationEventIds.add(rawEvent.id);
-        global.setTimeout?.(() => this.activationEventIds.delete(rawEvent.id), 0);
-      }
-
-      this.bridgeMissionProgress(rawEvent);
     }
 
     onMapTransition(detail) {
@@ -841,80 +551,24 @@
       }
     }
 
-    isActivationEvent(eventId) {
-      return Boolean(eventId && this.activationEventIds.has(eventId));
-    }
+    onResearchCrafted(detail = {}) {
+      if (detail.automatic === true) return false;
+      if (detail.rewardId !== "ration-basic-v2") return false;
 
-    bridgeMissionProgress(event) {
       const manager = this.manager();
-      if (!manager?.consumeObjectEvent) return false;
+      if (!manager?.notifyActionCompleted) return false;
 
-      // Object-M0 possède déjà le fan-out standard. On ne le double pas.
-      return false;
-    }
-
-    findMissionEntry(state, missionId) {
-      return (state?.missions || []).find((entry) =>
-        (entry.missionId || entry.id) === missionId
-      ) || null;
-    }
-
-    walkTree(node, callback) {
-      if (!node) return;
-      callback(node);
-      (node.children || []).forEach((child) =>
-        this.walkTree(child, callback)
-      );
-    }
-
-    nodeForSlot(entry, missionId, slot) {
-      let found = null;
-      this.walkTree(entry?.tree?.root, (node) => {
-        if (node.id === `${missionId}:${slot}`) found = node;
-      });
-      return found;
-    }
-
-    emitProgressNarrative(mission, entry) {
-      for (const [index, milestone] of
-        (mission.narrative?.progress || []).entries()) {
-        const key = `${mission.id}:progress:${index}`;
-        if (this.state.progressNarrative[key]) continue;
-
-        let reached = false;
-
-        if (milestone.slot) {
-          const node = this.nodeForSlot(entry, mission.id, milestone.slot);
-          if (!node) continue;
-
-          if (milestone.atCount != null) {
-            reached =
-              Number(node.progress) >= Number(milestone.atCount);
-          } else if (milestone.at != null) {
-            reached =
-              Number(node.progress) /
-                Math.max(1, Number(node.target) || 1) >=
-              Number(milestone.at);
-          }
-        } else if (milestone.at != null) {
-          reached = Number(entry.progress) >= Number(milestone.at);
+      return manager.notifyActionCompleted(
+        Missions.ActionType?.CRAFT || "craft",
+        {
+          recipe: detail.rewardId,
+          objectId: detail.objectId || null,
+          kind: detail.objectId || null,
+          amount: Math.max(1, Number(detail.quantity) || 1),
+          automatic: false,
+          source: detail.source || "research-menu"
         }
-
-        if (!reached) continue;
-
-        this.state.progressNarrative[key] = Date.now();
-        this.saveState();
-
-        BF.addJournalEntry?.({
-          id: `bible:${key}`,
-          type: "bible",
-          title: mission.title,
-          text: milestone.text,
-          mapId: BF.currentEngine?.currentMapId || null,
-          zoneId: BF.currentEngine?.currentZoneIndex ?? null,
-          important: false
-        });
-      }
+      );
     }
 
     shelterObjects() {
@@ -922,7 +576,6 @@
       if (!engine?.scene) return [];
 
       const result = [];
-
       engine.scene.traverse?.((object) => {
         const id = lower(
           object?.userData?.catalogId ||
@@ -930,37 +583,28 @@
           object?.userData?.functional?.id ||
           object?.name
         );
-
         if (!id) return;
 
         let kind = null;
         if (id.includes("refuge")) kind = "refuge";
         else if (id.includes("base")) kind = "base";
-        else if (
-          id === "camp" ||
-          id.includes("camp_") ||
-          id.includes("_camp")
-        ) {
+        else if (id === "camp" || id.includes("camp_") || id.includes("_camp")) {
           kind = "camp";
         }
-
         if (kind) result.push({ kind, object });
       });
 
       const site = this.manager()?.memory?.state?.siteProgression?.[
         engine.currentMapId
       ];
+
       if (
         Number(site?.stage) >= 1 &&
         ["camp", "refuge", "base"].includes(site?.kind) &&
         Number.isFinite(Number(site?.anchor?.x)) &&
         Number.isFinite(Number(site?.anchor?.z))
       ) {
-        result.push({
-          kind: site.kind,
-          site: true,
-          position: site.anchor
-        });
+        result.push({ kind: site.kind, site: true, position: site.anchor });
       }
 
       return result;
@@ -980,39 +624,12 @@
         gate.shelterKinds || ["camp", "refuge", "base"]
       );
       const radius = Math.max(0.5, Number(gate.radius) || 8);
-      const requiredMapId = gate.mapId != null
-        ? String(gate.mapId)
-        : null;
-      const requiredSiteId = gate.siteId != null
-        ? String(gate.siteId)
-        : null;
-
-      if (
-        requiredMapId != null &&
-        String(engine.currentMapId || "") !== requiredMapId
-      ) {
-        return false;
-      }
 
       const satisfied = this.shelterObjects().some((record) => {
         if (!allowed.has(record.kind)) return false;
-
-        const recordSiteId = String(
-          record.object?.userData?.establishedSite ||
-          record.object?.userData?.siteId ||
-          record.id ||
-          ""
-        );
-        if (requiredSiteId != null && recordSiteId !== requiredSiteId) {
-          return false;
-        }
-
         const q = record.object?.getWorldPosition
-          ? record.object.getWorldPosition(
-              new engine.THREE.Vector3()
-            )
+          ? record.object.getWorldPosition(new engine.THREE.Vector3())
           : record.position;
-
         return q && Math.hypot(p.x - q.x, p.z - q.z) <= radius;
       });
 
@@ -1029,33 +646,9 @@
       return !mission?.completionGate || this.gateSatisfied(mission);
     }
 
-    updateCompletionGates(now = performance.now()) {
-      if (now - this.lastGateReviewAt < 500) return false;
-      this.lastGateReviewAt = now;
-      const manager = this.manager();
-      if (!manager) return false;
-      const waiting = this.catalog.some((mission) => {
-        if (!mission.completionGate) return false;
-        const lifecycle = manager.memory?.state?.missionLifecycle?.[mission.id];
-        const tree = manager.trees?.get?.(mission.id);
-        return lifecycle?.status === "active" && tree?.root?.isComplete;
-      });
-      if (!waiting) return false;
-      const before = JSON.stringify(manager.memory.state.missionLifecycle);
-      manager.syncLifecycleFromTrees?.();
-      const changed = before !== JSON.stringify(manager.memory.state.missionLifecycle);
-      if (changed) manager.publish?.();
-      return changed;
-    }
-
     installCompletionGate() {
       const Manager = Missions.MissionManager;
-      if (
-        !Manager?.prototype ||
-        Manager.prototype.__bibleUnifiedGateV01
-      ) {
-        return;
-      }
+      if (!Manager?.prototype || Manager.prototype.__bibleUnifiedGateV01) return;
 
       Manager.prototype.syncLifecycleFromTrees =
         function syncLifecycleFromTreesBibleUnified() {
@@ -1072,7 +665,6 @@
               const lifecycle = this.ensureLifecycle(missionId);
               lifecycle.status = "active";
               lifecycle.waitingForBibleGate = true;
-
               if (!this.activeMissionIds.includes(missionId)) {
                 this.activeMissionIds.push(missionId);
               }
@@ -1082,185 +674,18 @@
             const lifecycle = this.ensureLifecycle(missionId);
             if (lifecycle.status !== "completed") changed = true;
             lifecycle.status = "completed";
-            lifecycle.completedAt =
-              tree.root.completedAt || Date.now();
-
+            lifecycle.completedAt = tree.root.completedAt || Date.now();
             delete lifecycle.waitingForBibleGate;
-
             this.activeMissionIds =
               this.activeMissionIds.filter((id) => id !== missionId);
           });
 
           this.syncMissionSelection();
-
           if (changed) this.memory.save();
         };
 
       Manager.prototype.__bibleUnifiedGateV01 = true;
     }
-
-    resolveSpawnOrigin(effect) {
-      const engine = BF.currentEngine;
-      const capsule = engine?.currentMap?.crashCapsule;
-      const player = engine?.character?.root?.position;
-      const anchor = effect?.placement?.anchor === "crash-capsule" && capsule
-        ? capsule.position : player;
-      if (!anchor) return null;
-      const distance = Math.max(4, Number(effect?.placement?.distance) || 7);
-      let dx = Number(anchor.x) || 0;
-      let dz = Number(anchor.z) || 0;
-      const length = Math.hypot(dx, dz);
-      if (length < 0.1) { dx = 1; dz = 0; }
-      else { dx /= length; dz /= length; }
-      return {
-        x: (Number(anchor.x) || 0) + dx * distance,
-        y: 0,
-        z: (Number(anchor.z) || 0) + dz * distance
-      };
-    }
-
-    sitePlacementPreset(microSceneId, engine = BF.currentEngine) {
-      return engine?.currentMap?.definition?.crashSite?.campSitePlacements?.[
-        microSceneId
-      ] || BF.maps?.[engine?.currentMapId]?.crashSite?.campSitePlacements?.[
-        microSceneId
-      ] || null;
-    }
-
-    resolveSitePlacement(effect) {
-      const preset = this.sitePlacementPreset(effect?.microSceneId);
-      if (preset?.position) {
-        return {
-          anchor: clone(preset.position),
-          rotation: Array.isArray(preset.rotation)
-            ? preset.rotation.map((value) => Number(value) || 0)
-            : [0, Number(preset.rotation) || 0, 0]
-        };
-      }
-      const anchor = this.resolveSpawnOrigin(effect);
-      if (!anchor) return null;
-      const requestedRotation = effect?.placement?.rotation;
-      return {
-        anchor,
-        rotation: Array.isArray(requestedRotation)
-          ? requestedRotation.map((value) => Number(value) || 0)
-          : [0, Number(requestedRotation) || 0, 0]
-      };
-    }
-
-    applyCanonicalSitePlacement(site, engine = BF.currentEngine) {
-      const preset = this.sitePlacementPreset(site?.microSceneId, engine);
-      if (!preset?.position) return site;
-      site.anchor = clone(preset.position);
-      site.rotation = Array.isArray(preset.rotation)
-        ? preset.rotation.map((value) => Number(value) || 0)
-        : [0, Number(preset.rotation) || 0, 0];
-      return site;
-    }
-
-    attachSiteRecords(records, site, engine = BF.currentEngine) {
-      const map = engine?.currentMap;
-      if (!map || !records?.length) return false;
-      records.forEach((record, index) => {
-        const root = record.root;
-        if (!root) return;
-        root.userData.bibleMissionId = site.missionId;
-        root.userData.establishedSite = site.id;
-        if (index === 0) {
-          root.name = `BlueFoxSite:${site.id}`;
-          root.userData.catalogId = site.kind;
-          root.userData.libraryType = site.kind;
-          root.userData.shelterKind = site.kind;
-        }
-        if (record.instance?.hitbox) map.interactables.push(record.instance.hitbox);
-        (record.instance?.colliders || []).forEach((collider) => {
-          const transformRoot = record.objectRoot || root;
-          transformRoot.updateWorldMatrix(true, false);
-          const position = transformRoot.localToWorld(collider.offset.clone());
-          map.colliders.push({ position, radius: collider.radius, owner: root });
-        });
-      });
-      engine.character?.setColliders?.(map.colliders);
-      return true;
-    }
-
-    renderSite(site, engine = BF.currentEngine) {
-      const map = engine?.currentMap;
-      if (!site?.id || !site?.microSceneId || !site?.anchor) return false;
-      if (!engine?.THREE || !map?.group || !BF.ObjectSpawner) return false;
-      if (site.mapId !== engine.currentMapId) return false;
-      if (map.group.getObjectByProperty?.("name", `BlueFoxSite:${site.id}`)) return true;
-      const spawner = new BF.ObjectSpawner({
-        THREE: engine.THREE,
-        scene: map.group,
-        palette: BF.maps?.[engine.currentMapId]?.palette
-      });
-      const records = spawner.spawnMicroScene(
-        site.microSceneId,
-        {
-          origin: site.anchor,
-          rotation: site.rotation || [0, 0, 0],
-          scene: map.group,
-          force: true,
-          source: `site:${site.id}`
-        }
-      );
-      return this.attachSiteRecords(records, site, engine);
-    }
-
-    applyEffects(mission) {
-      const effects = mission.effects || [];
-      if (!effects.length) return true;
-      const memory = this.manager()?.memory;
-      const receiptId = `${mission.id}:completion:v${mission.version || 1}`;
-      if (!memory) return false;
-      if (memory.hasEffectReceipt?.(receiptId)) {
-        this.renderCurrentSite();
-        return true;
-      }
-      const consume = effects.find((effect) => effect.type === "inventory.consume");
-      const establish = effects.find((effect) => effect.type === "site.establish");
-      if (!establish || !BF.MicroScenes?.get?.(establish.microSceneId)) return false;
-      const placement = this.resolveSitePlacement(establish);
-      if (!placement) return false;
-      if (consume) {
-        const quantity = Number(consume.quantity) || 0;
-        if ((BF.progression?.availableInventory?.([consume.inventoryKey]) || 0) < quantity) {
-          return false;
-        }
-        const removed = BF.consumeInventoryPoolOnce?.(
-          receiptId, [consume.inventoryKey], quantity
-        );
-        if (removed !== quantity) return false;
-      }
-      const mapId = BF.currentEngine?.currentMapId;
-      const site = {
-        id: `${mapId}:${establish.kind}:primary`,
-        stage: Math.max(1, Number(establish.stage) || 1),
-        kind: establish.kind,
-        mapId,
-        missionId: mission.id,
-        microSceneId: establish.microSceneId,
-        anchor: clone(placement.anchor),
-        rotation: placement.rotation.slice(),
-        interactionRadius: 8,
-        establishedAt: Date.now()
-      };
-      memory.state.siteProgression[mapId] = site;
-      memory.recordEffectReceipt?.(receiptId, { missionId: mission.id, siteId: site.id });
-      memory.save?.();
-      this.renderSite(site);
-      return true;
-    }
-
-    renderCurrentSite(engine = BF.currentEngine) {
-      const mapId = engine?.currentMapId;
-      const site = engine?.missionManager?.memory?.state?.siteProgression?.[mapId];
-      if (!site) return false;
-      this.applyCanonicalSitePlacement(site, engine);
-      return this.renderSite(site, engine);
-    }
-
 
     researchRewardDefinitions() {
       const entries = [];
@@ -1270,6 +695,7 @@
           : mission.rewards == null
             ? []
             : [mission.rewards];
+
         rewards.forEach((reward, index) => {
           if (!reward?.type?.startsWith?.("research.") || !reward.id) return;
           entries.push({
@@ -1292,30 +718,30 @@
     ensureResearchMemory() {
       const memory = this.manager()?.memory;
       if (!memory) return null;
-      memory.state.researchUnlocks =
-        memory.state.researchUnlocks || {};
+      memory.state.researchUnlocks = memory.state.researchUnlocks || {};
       return memory;
     }
 
     isResearchRewardUnlocked(id) {
       const memory = this.ensureResearchMemory();
-      return Boolean(
-        memory?.state?.researchUnlocks?.[String(id || "")]
-      );
+      return Boolean(memory?.state?.researchUnlocks?.[String(id || "")]);
     }
 
     unlockResearchRewards(mission) {
       const memory = this.ensureResearchMemory();
       if (!memory) return 0;
+
       const rewards = Array.isArray(mission?.rewards)
         ? mission.rewards
         : mission?.rewards == null
           ? []
           : [mission.rewards];
+
       let changed = 0;
       rewards.forEach((reward, index) => {
         if (!reward?.type?.startsWith?.("research.") || !reward.id) return;
         if (memory.state.researchUnlocks[reward.id]) return;
+
         memory.state.researchUnlocks[reward.id] = {
           id: reward.id,
           type: reward.type,
@@ -1324,61 +750,16 @@
           unlockedAt: Date.now()
         };
         changed += 1;
-        global.dispatchEvent?.(
-          new CustomEvent("bluefox:research-unlocked", {
-            detail: {
-              id: reward.id,
-              type: reward.type,
-              missionId: mission.id
-            }
-          })
-        );
       });
+
       if (changed) memory.save?.();
       return changed;
-    }
-
-    migrateLegacyRationUnlock() {
-      const reward = this.researchRewardById("ration-basic-v2");
-      const memory = this.ensureResearchMemory();
-      if (!reward || !memory || memory.state.researchUnlocks[reward.id]) {
-        return false;
-      }
-      try {
-        const raw = global.localStorage?.getItem?.(
-          "bluefox_personal_consumables_v1"
-        );
-        if (!raw) return false;
-        const legacy = JSON.parse(raw);
-        if (legacy?.recipeUnlocked !== true) return false;
-        memory.state.researchUnlocks[reward.id] = {
-          id: reward.id,
-          type: reward.type,
-          missionId: "legacy-ration-migration",
-          rewardIndex: 0,
-          unlockedAt: Date.now(),
-          migrated: true
-        };
-        memory.save?.();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    researchEntries(options = {}) {
-      const unlockedOnly = options.unlockedOnly !== false;
-      return this.researchRewardDefinitions()
-        .map((entry) => ({
-          ...entry,
-          unlocked: this.isResearchRewardUnlocked(entry.id)
-        }))
-        .filter((entry) => !unlockedOnly || entry.unlocked);
     }
 
     canCraftResearchReward(id, count = 1, options = {}) {
       const reward = this.researchRewardById(id);
       const requested = Math.max(1, Math.floor(Number(count) || 1));
+
       if (!reward || !["research.recipe", "research.blueprint"].includes(reward.type)) {
         return false;
       }
@@ -1389,12 +770,12 @@
         reward.requiresShelter !== false &&
         options.ignoreShelter !== true &&
         BF.canAccessCampInventory?.() !== true
-      ) {
-        return false;
-      }
+      ) return false;
+
       const requirements = Array.isArray(reward.requirements)
         ? reward.requirements
         : [];
+
       return requirements.every((requirement) => {
         const key = requirement.inventoryKey || requirement.resource;
         const quantity =
@@ -1414,6 +795,7 @@
       const requirements = Array.isArray(reward.requirements)
         ? reward.requirements
         : [];
+
       for (const requirement of requirements) {
         const key = requirement.inventoryKey || requirement.resource;
         const quantity =
@@ -1426,6 +808,7 @@
       const objectId = output.objectId || output.inventoryKey || null;
       const outputQuantity =
         Math.max(1, Number(output.quantity) || 1) * requested;
+
       let created = 0;
       if (objectId === "ration" && BF.Rations?.add) {
         created = BF.Rations.add(
@@ -1435,15 +818,11 @@
       } else if (objectId && BF.progression?.addInventory) {
         BF.progression.addInventory(objectId, outputQuantity);
         BF.progression.save?.();
-        BF.progression.publishChange?.("research-crafted", {
-          inventoryKey: objectId,
-          quantity: outputQuantity,
-          researchRewardId: reward.id
-        });
         created = outputQuantity;
       }
 
       if (!created) return 0;
+
       const detail = {
         rewardId: reward.id,
         category: reward.category || null,
@@ -1453,106 +832,70 @@
         source: options.source || "research-menu",
         at: Date.now()
       };
+
       global.dispatchEvent?.(
         new CustomEvent("bluefox:research-crafted", { detail })
       );
-      global.dispatchEvent?.(
-        new CustomEvent("bluefox:mission-craft", {
-          detail: {
-            recipe: reward.id,
-            objectId,
-            quantity: created,
-            automatic: options.automatic === true,
-            at: detail.at
-          }
-        })
-      );
+
       return created;
     }
 
     onMissionState(state) {
-      this.migrateLegacyRationUnlock();
       for (const mission of this.catalog) {
-        const entry = this.findMissionEntry(state, mission.id);
-        if (entry) this.emitProgressNarrative(mission, entry);
-
         const lifecycle =
           this.manager()?.memory?.state?.missionLifecycle?.[mission.id];
 
         if (lifecycle?.status === "completed") {
           this.unlockResearchRewards(mission);
+
+          const completionEvent = {
+            type: "progression.mission_completed",
+            missionId: mission.id,
+            amount: 1
+          };
+          this.consumeTriggerEvent(completionEvent);
         }
 
+        const key = `${mission.id}:completed`;
         if (
           lifecycle?.status === "completed" &&
-          !this.state.effectsApplied[mission.id]
+          !this.state.progressNarrative[key]
         ) {
-          if (this.applyEffects(mission)) {
-            this.state.effectsApplied[mission.id] = Date.now();
-            this.saveState();
-          }
-          this.emitCompletedOnce(mission);
+          this.state.progressNarrative[key] = Date.now();
+          this.saveState();
+          this.emitNarrative(mission, "completed");
         }
       }
-    }
-
-    emitCompletedOnce(mission) {
-      const key = `${mission.id}:completed`;
-      if (this.state.progressNarrative[key]) return false;
-
-      this.state.progressNarrative[key] = Date.now();
-      this.saveState();
-      return this.emitNarrative(mission, "completed");
     }
 
     connect() {
       if (!this.unsubscribeObjectEvents && BF.ObjectEvents?.subscribe) {
         this.unsubscribeObjectEvents =
-          BF.ObjectEvents.subscribe((event) =>
-            this.onObjectEvent(event)
-          );
+          BF.ObjectEvents.subscribe((event) => this.onObjectEvent(event));
       }
 
-      global.removeEventListener?.(
-        "bluefox:mission-state",
-        this.boundMissionState
-      );
-      global.addEventListener?.(
-        "bluefox:mission-state",
-        this.boundMissionState
-      );
-      global.removeEventListener?.(
-        "bluefox:map-transition-completed",
-        this.boundMapTransition
-      );
-      global.addEventListener?.(
-        "bluefox:map-transition-completed",
-        this.boundMapTransition
-      );
-      return Boolean(this.unsubscribeObjectEvents);
-    }
+      global.removeEventListener?.("bluefox:mission-state", this.boundMissionState);
+      global.addEventListener?.("bluefox:mission-state", this.boundMissionState);
 
-    activationDiagnostics(missionId) {
-      const lifecycle = this.missionLifecycle(missionId);
-      return {
-        missionId,
-        definitionExists: Boolean(
-          Missions.getDefinition?.(missionId)
-        ),
-        managerAvailable: Boolean(this.manager()),
-        lifecycle: clone(lifecycle.lifecycle),
-        active: lifecycle.active,
-        completed: lifecycle.completed,
-        treeExists: Boolean(lifecycle.tree),
-        triggerCount:
-          this.state.triggerCounts[
-            `${missionId}:${this.byId.get(missionId)?.trigger?.type || "none"}`
-          ] || 0,
-        lastActivationAttempt:
-          this.lastActivationAttempt?.missionId === missionId
-            ? clone(this.lastActivationAttempt)
-            : null
-      };
+      global.removeEventListener?.(
+        "bluefox:map-transition-completed",
+        this.boundMapTransition
+      );
+      global.addEventListener?.(
+        "bluefox:map-transition-completed",
+        this.boundMapTransition
+      );
+
+      global.removeEventListener?.(
+        "bluefox:research-crafted",
+        this.boundResearchCrafted
+      );
+      global.addEventListener?.(
+        "bluefox:research-crafted",
+        this.boundResearchCrafted
+      );
+
+      return Boolean(this.unsubscribeObjectEvents);
     }
 
     diagnostics() {
@@ -1565,14 +908,7 @@
         catalogCount: this.catalog.length,
         registeredDefinitions: this.catalog.filter((mission) =>
           Missions.getDefinition?.(mission.id)
-        ).length,
-        triggerCounts: clone(this.state.triggerCounts),
-        lifecycle: Object.fromEntries(
-          this.catalog.map((mission) => [
-            mission.id,
-            this.missionLifecycle(mission.id).status
-          ])
-        )
+        ).length
       };
     }
 
@@ -1584,16 +920,7 @@
 
       this.installCompletionGate();
       this.connect();
-      this.migrateLegacyRationUnlock();
       this.started = true;
-
-      console.info(
-        "[BlueFox] Bible Runtime V0.1 unifié actif.",
-        {
-          missions: this.catalog.length,
-          connected: Boolean(this.unsubscribeObjectEvents)
-        }
-      );
 
       return {
         ...registration,
@@ -1603,26 +930,18 @@
     }
   }
 
-  BibleRuntimeV01.prototype.__sequenceActionsCompilerV1 = true;
-
   const runtime = new BibleRuntimeV01();
 
-  // Une seule source de vérité Runtime.
   BF.BibleRuntimeV01 = BibleRuntimeV01;
   BF.bibleRuntime = runtime;
 
-  // Compatibilité API avec les outils/tests précédents.
   BF.startBibleRuntime = () => runtime.start();
   BF.getBibleRuntimeDiagnostics = () => runtime.diagnostics();
-  BF.getBibleRuntimeV01Diagnostics = () => runtime.diagnostics();
-  BF.getBibleActivationDiagnostics = (id) =>
-    runtime.activationDiagnostics(id);
-  BF.getLastBibleActivationAttempt = () =>
-    clone(runtime.lastActivationAttempt);
-
 
   BF.Research = Object.freeze({
-    list: (options) => runtime.researchEntries(options),
+    list: (options) => runtime.researchRewardDefinitions()
+      .filter((entry) => options?.unlockedOnly === false ||
+        runtime.isResearchRewardUnlocked(entry.id)),
     get: (id) => runtime.researchRewardById(id),
     isUnlocked: (id) => runtime.isResearchRewardUnlocked(id),
     canCraft: (id, count, options) =>
@@ -1630,22 +949,6 @@
     craft: (id, count, options) =>
       runtime.craftResearchReward(id, count, options)
   });
-  BF.getResearchEntries = (options) =>
-    runtime.researchEntries(options);
-  BF.getResearchReward = (id) =>
-    runtime.researchRewardById(id);
-  BF.craftResearchReward = (id, count, options) =>
-    runtime.craftResearchReward(id, count, options);
-
-  BF.startBibleMission = (id) => {
-    const mission = runtime.byId.get(id);
-    return mission
-      ? runtime.activateMission(mission, {
-          type: "manual",
-          subject: null
-        })
-      : false;
-  };
 
   runtime.start();
 })(window);
