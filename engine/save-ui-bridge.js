@@ -62,6 +62,9 @@
   let startupReady = false;
   let startupPromise = null;
   let newGameResetInProgress = false;
+  const INTRO_VIDEO_SRC = "./assets/video/bluefox-intro.mp4";
+  const INTRO_OVERLAY_ID = "bluefox-new-game-intro";
+  let introRunning = false;
 
   const keys = () =>
     Array.from({ length: global.localStorage.length }, (_, index) =>
@@ -442,6 +445,49 @@
     return errors;
   };
 
+  const playNewGameIntro = () =>
+    new Promise((resolve) => {
+      if (introRunning) return;
+      introRunning = true;
+
+      global.document.getElementById(INTRO_OVERLAY_ID)?.remove();
+
+      const overlay = global.document.createElement("div");
+      overlay.id = INTRO_OVERLAY_ID;
+      overlay.className = "new-game-intro";
+
+      const video = global.document.createElement("video");
+      video.className = "new-game-intro-video";
+      video.src = INTRO_VIDEO_SRC;
+      video.preload = "auto";
+      video.playsInline = true;
+      video.controls = false;
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try { video.pause(); } catch {}
+        overlay.remove();
+        introRunning = false;
+        resolve();
+      };
+
+      const skip = button("Passer", "new-game-intro-skip", finish);
+      video.addEventListener("ended", finish, { once: true });
+      video.addEventListener("error", finish, { once: true });
+
+      overlay.append(video, skip);
+      global.document.body.append(overlay);
+
+      const playback = video.play();
+      if (playback?.catch) {
+        playback.catch(() => {
+          skip.textContent = "Continuer";
+        });
+      }
+    });
+
   const startNewGame = async () => {
     await createRecoverySnapshot();
     newGameResetInProgress = true;
@@ -467,6 +513,13 @@
     global.location.reload();
   };
 
+  const startNewGameWithIntro = async () => {
+    if (introRunning) return false;
+    await playNewGameIntro();
+    await startNewGame();
+    return true;
+  };
+
   const showNewGameConfirmation = (root) => {
     closePopover(root);
     const popover = global.document.createElement("div");
@@ -477,7 +530,7 @@
     popover.append(
       warning,
       button("Annuler", "new-game-cancel-button", () => closePopover(root)),
-      button("Confirmer", "new-game-confirm-button", startNewGame)
+      button("Confirmer", "new-game-confirm-button", startNewGameWithIntro)
     );
     root.append(popover);
   };
@@ -572,8 +625,30 @@
       origin: global.location.origin
     });
 
-  bootstrapFromFile().then((ready) => {
+  bootstrapFromFile().then(async (ready) => {
     if (!ready) return;
+
+    const slots = await BF.getSaveSlots();
+    const hasExistingGame = Boolean(
+      slots.auto ||
+      slots[1] ||
+      slots[2] ||
+      global.localStorage.getItem("bluefox_new_game_start_v1")
+    );
+
+    if (!hasExistingGame) {
+      const gate = global.document.createElement("div");
+      gate.id = INTRO_OVERLAY_ID;
+      gate.className = "new-game-intro new-game-first-launch";
+      gate.append(
+        button("Nouvelle partie", "new-game-first-launch-button", async () => {
+          gate.remove();
+          await startNewGameWithIntro();
+        })
+      );
+      global.document.body.append(gate);
+    }
+
     global.setTimeout(flush, 15000);
     global.setInterval(flush, AUTOSAVE_INTERVAL_MS);
     global.addEventListener("pagehide", flush);

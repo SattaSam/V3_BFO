@@ -29,7 +29,8 @@
   ]);
 
   const INTERACTION_FILTERS = Object.freeze([
-    "objectId", "kind", "kindsAny", "family", "subject", "tagsAny", "tagsAll"
+    "objectId", "kind", "kindsAny", "family", "subject", "knowledgeFamily",
+    "tagsAny", "tagsAll", "source"
   ]);
 
   const TRIGGER_FILTERS = Object.freeze({
@@ -54,7 +55,8 @@
   const EFFECT_TYPES = Object.freeze([
     "inventory.add",
     "inventory.consume",
-    "site.establish"
+    "site.establish",
+    "autonomy.set"
   ]);
 
   const COMPLETION_GATE_TYPES = Object.freeze(["proximity.shelter"]);
@@ -327,6 +329,17 @@
         }
         if (!Number.isFinite(Number(effect.quantity)) || Number(effect.quantity) < 1) {
           add(errors, missionId, `${path}.quantity`, "doit être >= 1.");
+        }
+      }
+
+      if (effect.type === "autonomy.set") {
+        if (!["off", "movement-only", "full"].includes(effect.mode)) {
+          add(errors, missionId, `${path}.mode`,
+              "doit valoir off, movement-only ou full.");
+        }
+        if (effect.phase != null && !["activated", "completed"].includes(effect.phase)) {
+          add(errors, missionId, `${path}.phase`,
+              "doit valoir activated ou completed.");
         }
       }
 

@@ -1,25 +1,41 @@
 # BLUEFOX ODYSSEY — MASTER
 
 ## État de référence
-Dernière mise à jour : 2026-08-15
+Dernière mise à jour : 2026-08-16
 
 ### Version de travail
-- Base GitHub de référence : commit `d59376559e71032b478fb01a84fdb9bdd6611736` — **V5 Stable**.
-- Ce commit remplace comme base de reprise les anciens jalons cumulés et doit être considéré comme point de départ obligatoire de tout nouveau correctif.
+- Base GitHub de référence : commit `d1796bf312f5e86da65317087b6c58db803bcd3c` — **fix regression 4**.
+- Le chantier tutoriel T01 à T08 a été intégré techniquement à partir de cette base dans le cumulatif livré le 16 août 2026.
+- Statut tutoriel : **T01 à T08 intégrés techniquement, validation en jeu encore à effectuer**.
+- Les tests P01 à P08 sont explicitement à faire avant de considérer ce jalon comme validé.
 - Base PC historique : V16.20.
 - Version mobile/APK précédente : V16.14, considérée obsolète.
 - Développement mobile à reprendre depuis la base PC stable courante.
 - Objectif : builds testables régulièrement, Web puis Android.
 
+## Avancement global
+Estimation de pilotage au 16 août 2026 : **environ 78 %**.
+
+Le cœur fonctionnel est largement en place : monde 3D, CUO, micro-scènes, génération de maps, navigation/topologie, autonomie/BAC, missions génériques, survie/rations, journal/UI, musique adaptative et chaîne Bible → moteur.
+
+Le reliquat principal porte sur :
+- validation en jeu et non-régression longue ;
+- tests T01 à T08 ;
+- récupération puis intégration T09 à T12 ;
+- GAME-shelter complet ;
+- factions / réputation ;
+- industrialisation progressive des 182 missions ;
+- finitions performance, audio, UI et packaging/mobile.
+
 ## Gouvernance documentaire officielle
-Les seuls documents de référence officiels maintenus sont ceux listés dans `docs/README.txt` :
+Documents de pilotage actifs :
 - `MASTER.md`
 - `ARCHITECTURE_TECHNIQUE.md`
-- `ROADMAP_TODO_RUNTIME_CLOTURE_CUO_PRIORITAIRE.md`
+- `ROADMAP_TODO.md`
 - `DEV_HISTORIQUE.md`
 - `MUSIC_SYSTEM_V1.md`
 
-Les autres DOCX/MD présents dans `docs/` sont des annexes, archives ou sources historiques et ne doivent pas être utilisés pour piloter le chantier courant.
+Les DOCX/MD historiques restent des annexes ou sources documentaires et ne doivent pas remplacer ces fichiers pour le pilotage courant.
 
 ## Architecture 3D concernée
 Fichiers principaux :
@@ -34,9 +50,9 @@ Fichiers principaux :
 ## Contrat MSC validé
 - CUO Lab, MAP_Test et moteur du jeu doivent restituer exactement les mêmes transformations locales enregistrées.
 - `ObjectSpawner` choisit uniquement l'ancrage et la rotation globale d'une instance MSC.
+- Les scènes déjà créées et les associations mission↔MSC déjà décidées doivent être réutilisées avant toute création nouvelle.
 - Les trois MSC coralliennes sous-marines bioluminescentes restent intégrées.
 - Les rochers blanchis restent exclus de tout contexte non glace/banquise/neige/toundra.
-- Les scènes déjà créées et les associations mission↔MSC déjà décidées doivent être réutilisées avant toute création nouvelle.
 
 ## Système de missions et progression
 - Le Runtime missionnel V0.1 / MissionManager M2 reste la fondation fonctionnelle.
@@ -45,12 +61,9 @@ Fichiers principaux :
 - Mission principale et missions secondaires coexistent ; les secondaires progressent passivement.
 - `MissionMemory` reste la mémoire persistante des lifecycles, faits, historiques, effets et sites.
 - Le registre central de progression reste autoritaire pour les quantités d'inventaire.
+- Les modes d'autonomie canoniques restent `off`, `movement-only` et `full`.
 
 ## Principe officiel Bible → moteur
-La Bible documentaire reste la source narrative humaine et souveraine.
-
-Chaîne officielle :
-
 ```text
 BIBLE DOCUMENTAIRE
   ↓
@@ -67,73 +80,32 @@ Moteur du jeu
 
 Le patron porte la mécanique commune. La fiche ne contient que les paramètres propres à une mission.
 
-### Stratégie de patrons
-L'objectif n'est pas de créer un patron par mission, mais un nombre réduit de familles génériques couvrant un maximum de cas avec des interrupteurs.
+## Tutoriel T01 à T08 — état courant
+Le lot T01 à T08 est maintenant **intégré techniquement** mais reste **à valider en jeu**.
 
-Interrupteurs de référence :
-- `targetBinding = instance | definition`
-- `distinctMode = indifferent | unique`
-- `scope = local | map | global`
-- `sameTarget = true | false`
-- `count` / `threshold`
-- `duration` / `proximity`
-- `direction`
-- `contextRole = triggerContext | objectiveSubject | scenarioSupport`
-- effets / délai / prérequis
+Principes fonctionnels retenus :
+- T01 : reconnaissance du Site du crash / capsule réelle de la map `crystal`.
+- T02 : premières ressources : plante, bois, minerais.
+- T03 : établissement du premier Camp avec la MSC et le placement canonique existants.
+- T04 : démonstration de progression parallèle ; la première nouvelle collecte de bois pendant T04 valide T04, tandis que le compteur bois du futur Refuge continue séparément vers 100.
+- T05 : exploration à 60 % de la map de départ `crystal` (map à un plateau).
+- T06 : analyse de 3 objets différents, incluant la stèle et l'arche ; synthèse dans le Journal.
+- T07 : suggestion de direction via le menu Planète, déplacement en semi-autonomie, cible de curiosité sur la nouvelle map et MSC de secours si nécessaire.
+- T08 : suggestion explicite de retour au camp puis retour par itinéraire connu.
 
-Les trois patrons de preuve actuels restent la base :
-1. découvrir / comprendre ;
-2. accumuler / atteindre un seuil ;
-3. préparer → produire / débloquer.
-
-Ils doivent être complétés par quelques familles supplémentaires seulement lorsque les besoins documentaires l'exigent.
-
-## Audit Bible / CUO / moteur — 15 août 2026
-Conclusion : le moteur générique est largement suffisant ; les principaux manques sont des raccords ciblés.
-
-Déjà disponibles :
-- triggers interaction/exploration/progression ;
-- `instanceId`, `mapId`, `zoneId`, `factionId` dans les événements ;
-- `targetBinding` au contrat ;
-- mission instanciable par map ;
-- `uniqueOnly` sur les triggers ;
-- persistance des faits/historiques ;
-- infrastructure de spawn MSC via `site.establish` ;
-- fan-out multi-missions ;
-- métadonnées CUO riches et réellement propagées au runtime.
-
-Raccords à compléter :
-- faire suivre réellement `targetBinding=instance` jusqu'à ActionBridge ;
-- ajouter `distinctBy` sur les objectifs actifs ;
-- agréger plusieurs maps/biomes/instances dans une mission globale ;
-- généraliser le spawn MSC missionnel ;
-- durée/proximité/délai ;
-- cycle excursion→retour ;
-- effets génériques de branche, réputation et faits.
-
-## CUO / factions / réputation
-- Chaque type de créature/PNJ pertinent doit porter un `speciesId` et un `factionId`.
-- `cultureId` peut être porté par la MSC/instance si le contexte l'exige.
-- Réputation simple attendue : agressif, neutre, friendly, friendly++.
-- Ne pas recréer les PNJ : enrichir leur identité fonctionnelle.
-
-## Ration
-La brique `survival.rationRecipe` existe déjà dans le moteur et doit être retrouvée/auditée avant toute nouvelle création de recette ou de patron dédié.
-
-## Tutoriel
-Après les patrons/raccords génériques :
-- implanter T01 à T12 comme lot de validation ;
-- T01–T06 dirigés ;
-- T07 introduit l'autonomie ciblée ;
-- T08 valide le retour explicite au Site du crash ;
-- récupérer T09–T12 depuis les sources canoniques avant implantation.
-
-Le tutoriel est le banc de validation avant industrialisation des 182 missions.
+### Validation obligatoire
+- **P01 à P08 : tests en jeu à faire.**
+- Vérifier sauvegarde/reprise à chaque étape.
+- Vérifier la chaîne des prérequis et l'absence d'auto-validation indue.
+- Vérifier les indications UI tutoriel.
+- Vérifier les transitions d'autonomie T01-T08.
+- Vérifier la non-régression BAC/navigation/rations.
 
 ## Direction actuelle
 Priorité immédiate :
-1. patrons missionnels mutualisés + raccords moteur associés ;
-2. factions/réputation + ration ;
-3. T01–T12 ;
-4. industrialisation progressive des 182 missions ;
-5. finitions gameplay, audio, performances et packaging.
+1. tester P01 à P08 en jeu et corriger uniquement les défauts réellement reproduits ;
+2. stabiliser définitivement le lot T01 à T08 ;
+3. récupérer les détails canoniques T09 à T12 ;
+4. traiter GAME-shelter complet ;
+5. poursuivre factions/réputation et industrialisation des 182 missions ;
+6. finitions gameplay, audio, performances et packaging.

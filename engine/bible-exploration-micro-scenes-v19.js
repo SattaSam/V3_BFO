@@ -2,9 +2,9 @@
   "use strict";
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const current = BF.MicroScenes;
-  if (!current || current.get?.("MSC-BIBLE-RELIC-001")) return;
+  if (!current) return;
 
-  const relic = Object.freeze({
+  const relic = current.get?.("MSC-BIBLE-RELIC-001") || Object.freeze({
     id: "MSC-BIBLE-RELIC-001",
     biomes: Object.freeze(["magnetic","crystalline","ruins"]),
     rarity: "story",
@@ -16,7 +16,23 @@
     ])
   });
 
-  const data = Object.freeze({ ...current.data, bible_relic: relic });
+  const tutorialStele = current.get?.("MSC-BIBLE-TUTORIAL-STELE-001") || Object.freeze({
+    id: "MSC-BIBLE-TUTORIAL-STELE-001",
+    biomes: Object.freeze(["all"]),
+    rarity: "story",
+    radius: 6,
+    objects: Object.freeze([
+      Object.freeze({ type: "stele", offset: Object.freeze([0,0,0]), variant: 0 }),
+      Object.freeze({ type: "crystal", offset: Object.freeze([2.4,0,-1.2]), variant: 0 }),
+      Object.freeze({ type: "rock", offset: Object.freeze([-2.2,0,1.1]), variant: 0 })
+    ])
+  });
+
+  const data = Object.freeze({
+    ...current.data,
+    bible_relic: relic,
+    bible_tutorial_stele: tutorialStele
+  });
   BF.MicroScenes = Object.freeze({
     ...current,
     data,

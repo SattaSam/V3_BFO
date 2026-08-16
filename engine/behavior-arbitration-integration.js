@@ -3,7 +3,7 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions || {};
-  const INTEGRATION_VERSION = "bac-knowledge-routing-r19-path-budget";
+  const INTEGRATION_VERSION = "bac-knowledge-routing-r20-tutorial-path-budget";
   const PREFERENCE_DECAY_MS = 20 * 60 * 1000;
   const PREFERENCE_WINDOW_MS = 4 * 60 * 1000;
   const PREFERENCE_COMMIT_MS = 3 * 60 * 1000;
@@ -100,6 +100,21 @@
       def.id ||
       ""
     ).trim().toLowerCase();
+  };
+
+  const rationPolicy = () => BF.RationPolicy || null;
+  const rationProfile = () => rationPolicy()?.profile?.() || null;
+  const rationIngredientSet = () =>
+    new Set((rationPolicy()?.ingredientKeys?.() || []).map((value) =>
+      String(value || "").toLowerCase()
+    ));
+  const rationIngredientObjects = (objects = []) => {
+    const ingredients = rationIngredientSet();
+    if (!ingredients.size) return [];
+    return objects.filter((object) =>
+      ingredients.has(objectKind(object)) &&
+      isCollectableDefinition(objectDefinition(object))
+    );
   };
   const scoreModifier = (axis, baseScore) => {
     const BAC = getBAC();
@@ -251,7 +266,7 @@
     return (
       /fauna|animal|creature|npc|pnj|species/.test(category) ||
       tags.some((tag) =>
-        /fauna|animal|creature|npc|pnj|species|poi|landmark|relic|relique|phenomenon|unique/.test(tag)
+        /fauna|animal|creature|npc|pnj|species|poi|relic|relique|phenomenon|unique/.test(tag)
       )
     );
   };
@@ -526,8 +541,6 @@
       ? available.filter((object) => objectKind(object) === preferred)
       : [];
 
-    // La préférence ne re-classe jamais les autres objets. Elle intervient
-    // seulement après le choix d'axe, avant la distance.
     const candidatePool =
       preferredAvailable.length &&
       preferredEntry()?.lastAxis === axis
@@ -594,8 +607,8 @@
         interest: entry.interest,
         reasons: entry.reasons,
         researchKnowledge: targetInterest(engine, entry.object, axis).researchKnowledge || null,
-        directDistance: Number(entry.direct.toFixed?.(2) ?? entry.direct),
-        routeCost: Number(entry.cost.toFixed?.(2) ?? entry.cost)
+        directDistance: Number(entry.direct?.toFixed?.(2) ?? entry.direct),
+        routeCost: entry.cost == null ? null : Number(entry.cost.toFixed?.(2) ?? entry.cost)
       }))
     };
     return selected;
@@ -798,6 +811,9 @@
       if (typeof originalHasRunnable === "function") {
         Manager.prototype.hasRunnablePrimaryMission =
           function hasRunnableGuidedMission() {
+            const autonomyMode = BF.getAutonomyMode?.() || BF.autonomyMode || "full";
+            if (autonomyMode !== "full") return false;
+            if (this.engine?.persistentNavigationIntent) return false;
             if (!this.isMissionGuidanceEnabled()) return false;
             return originalHasRunnable.call(this);
           };
@@ -807,6 +823,9 @@
       if (typeof originalChoose === "function") {
         Manager.prototype.chooseRunnableMissionAction =
           function choosePrioritizedMissionAction(context) {
+            const autonomyMode = BF.getAutonomyMode?.() || BF.autonomyMode || "full";
+            if (autonomyMode !== "full") return null;
+            if (this.engine?.persistentNavigationIntent) return null;
             if (!this.isMissionGuidanceEnabled()) return null;
             const queue = ensurePriorityState.call(this);
             const candidates = queue
@@ -920,6 +939,23 @@
           };
       }
 
+      const originalUpdate = Manager.prototype.update;
+      if (typeof originalUpdate === "function" && !Manager.prototype.__bacAutonomyModeGuard) {
+        Manager.prototype.update = function updateWithAutonomyMode(now) {
+          const autonomyMode = BF.getAutonomyMode?.() || BF.autonomyMode || "full";
+          if (autonomyMode !== "full") {
+            if (this.currentAction) this.cancelCurrentAction?.("autonomy-mode");
+            return false;
+          }
+          if (this.engine?.persistentNavigationIntent) {
+            if (this.currentAction) this.cancelCurrentAction?.("player-navigation");
+            return false;
+          }
+          return originalUpdate.call(this, now);
+        };
+        Manager.prototype.__bacAutonomyModeGuard = true;
+      }
+
       Manager.prototype.__bacPriorityQueueInstalled = true;
     }
     return true;
@@ -952,6 +988,18 @@
     }
     const originalAutonomy = engine.updateAutonomy.bind(engine);
     engine.updateAutonomy = function updateAutonomyWithBAC(now) {
+      const autonomyMode = BF.getAutonomyMode?.() || BF.autonomyMode || "full";
+      if (autonomyMode === "off") return;
+      if (
+        this.persistentNavigationIntent &&
+        !this.transitioning &&
+        !this.pendingInteraction &&
+        !this.currentRoutine &&
+        !this.missionManager?.currentAction
+      ) {
+        this.resumePersistentNavigation?.();
+        return;
+      }
       if (this.transitioning || this.pendingInteraction || this.pendingGate || this.pendingZoneExploration || this.currentRoutine || this.missionManager?.currentAction) {
         if (this.persistentNavigationIntent && !this.transitioning && !this.pendingInteraction && !this.currentRoutine && !this.missionManager?.currentAction) {
           this.resumePersistentNavigation?.();
@@ -970,6 +1018,31 @@
       this.lastAutonomyAt = now;
       const interactables = (this.currentMap?.interactables || [])
         .filter((object) => this.canInteractWith(object, now));
+      const currentRationProfile = rationProfile();
+      const rationIngredients = currentRationProfile?.shouldCollect
+        ? rationIngredientObjects(interactables)
+        : [];
+      const rationPolicyState = rationPolicy();
+      const survivalCritical =
+        Boolean(
+          survival.needs?.criticalRest ||
+          survival.needs?.food ||
+          Number(survival.energy) < 40 ||
+          Number(survival.food) < 40
+        );
+      const rationMissing = currentRationProfile
+        ? Math.max(
+            0,
+            Number(currentRationProfile.targetMin) -
+            (Number(BF.Rations?.snapshot?.().rations) || 0)
+          )
+        : 0;
+      const rationCraftable =
+        currentRationProfile?.shouldCraft &&
+        rationPolicyState?.autoCraftEnabled?.() === true &&
+        rationPolicyState?.campAccessible?.() === true
+          ? rationPolicyState.craftableCount?.(rationMissing) || 0
+          : 0;
       const activePreference = preferredEntry();
       const preferredCollectables = activePreference
         ? interactables.filter((object) =>
@@ -1042,6 +1115,51 @@
           }
         },
         {
+          id: "survival-ration-craft",
+          axis: "survival",
+          baseWeight:
+            currentRationProfile?.level === "critical" && survivalCritical ? 46 : 0,
+          available:
+            currentRationProfile?.level === "critical" &&
+            survivalCritical &&
+            rationCraftable > 0,
+          execute: () => {
+            const crafted = BF.Research?.craft?.(
+              rationPolicyState.recipeId,
+              rationCraftable,
+              {
+                automatic: true,
+                source: "bac-survival"
+              }
+            ) || 0;
+            if (crafted > 0) {
+              this.callbacks?.onStatus?.(
+                `BlueFox profite du camp pour préparer ${crafted} ration${crafted > 1 ? "s" : ""}.`
+              );
+            }
+          }
+        },
+        {
+          id: "survival-ration-collect",
+          axis: "survival",
+          baseWeight:
+            currentRationProfile?.level === "critical" && survivalCritical
+              ? 54
+              : 0,
+          available:
+            Boolean(
+              currentRationProfile?.level === "critical" &&
+              survivalCritical &&
+              currentRationProfile?.shouldCollect &&
+              rationIngredients.length
+            ),
+          execute: () => commitTarget(
+            this,
+            chooseLocalTarget(this, rationIngredients, "collection"),
+            "collection"
+          )
+        },
+        {
           id: "relations-object",
           axis: "relations",
           baseWeight: objectWeight(interests.relations, preferenceBoosts.relations),
@@ -1093,7 +1211,7 @@
           id: "patrol",
           axis: "exploration",
           baseWeight: exploration.next ? 24 : 0,
-          available: Boolean(exploration.next),
+          available: Boolean(exploration.next) && !hasFreshLocalInterest,
           execute: () => {
             const target = new this.THREE.Vector3(
               exploration.next.x,
@@ -1120,9 +1238,12 @@
           preferredCollectionOption?.available
         );
 
-      const selected = preferenceCommitmentActive
+      const filteredOptions = autonomyMode === "movement-only"
+        ? options.filter((option) => ["known-gate", "patrol"].includes(option.id))
+        : options;
+      const selected = preferenceCommitmentActive && autonomyMode === "full"
         ? preferredCollectionOption
-        : weightedPick(options);
+        : weightedPick(filteredOptions);
       if (!selected) return originalAutonomy(now);
       if (lastTargetDecision) {
         lastTargetDecision.preferenceActivityBoosts = { ...preferenceBoosts };
@@ -1138,6 +1259,18 @@
     const originalEnsureActivity = engine.ensureActivity?.bind(engine);
     if (originalEnsureActivity) {
       engine.ensureActivity = function ensureActivityAsWatchdog(now) {
+        const autonomyMode = BF.getAutonomyMode?.() || BF.autonomyMode || "full";
+        if (autonomyMode === "off") return;
+        if (
+          this.persistentNavigationIntent &&
+          !this.transitioning &&
+          !this.pendingInteraction &&
+          !this.currentRoutine &&
+          !this.missionManager?.currentAction
+        ) {
+          this.resumePersistentNavigation?.();
+          return;
+        }
         const idle = now - Number(this.lastActivityAt || now);
         if (idle < 12000 || this.transitioning || this.pendingInteraction || this.currentRoutine) return;
 
@@ -1202,8 +1335,7 @@
       );
       return { ...base, installed: worldInstalled, worldOverlayInstalled: worldInstalled, integrationVersion: engine?.__bacRoutingVersion || INTEGRATION_VERSION, currentEngineAvailable: Boolean(engine),
         autonomyHook: engine?.updateAutonomy?.name || "",
-        autonomyUnderlyingHook: engine?.__autonomyBeforeRationAI?.name || "",
-        rationAutonomyDecision: engine?.__lastRationAutonomyDecision || null, targetPreference: (() => { const e = preferredEntry(); return e ? { kind:e.kind, count:e.count, strength:Number(e.strength.toFixed(2)), ageMs:Date.now()-e.lastAt, lastAxis:e.lastAxis } : null; })(),
+        rationPolicy: BF.RationPolicy?.profile?.() || null, targetPreference: (() => { const e = preferredEntry(); return e ? { kind:e.kind, count:e.count, strength:Number(e.strength.toFixed(2)), ageMs:Date.now()-e.lastAt, lastAxis:e.lastAxis } : null; })(),
         lastTargetDecision,
         preferenceCommitment: (() => {
           const e = preferredEntry();

@@ -42,6 +42,7 @@
         this.onMapTransition(event.detail || {});
       this.boundResearchCrafted = (event) =>
         this.onResearchCrafted(event.detail || {});
+      this.processingTutorialProgress = false;
     }
 
     defaultState() {
@@ -52,6 +53,9 @@
         progressNarrative: {},
         effectsApplied: {},
         gatesSatisfied: {},
+        shelterPreview: { wood: 0, target: 100 },
+        journalReportsApplied: {},
+        tutorialGuidesApplied: {},
       };
     }
 
@@ -69,6 +73,9 @@
           progressNarrative: { ...(saved?.progressNarrative || {}) },
           effectsApplied: { ...(saved?.effectsApplied || {}) },
           gatesSatisfied: { ...(saved?.gatesSatisfied || {}) },
+          shelterPreview: { wood: Number(saved?.shelterPreview?.wood) || 0, target: 100 },
+          journalReportsApplied: { ...(saved?.journalReportsApplied || {}) },
+          tutorialGuidesApplied: { ...(saved?.tutorialGuidesApplied || {}) },
         };
       } catch {
         return this.defaultState();
@@ -96,6 +103,37 @@
     compileMission(mission) {
       const pattern = this.patterns[mission?.pattern];
       if (!mission || !pattern) return null;
+
+      if (mission.pattern === "SEQUENCE_ACTIONS" && Array.isArray(mission.sequence)) {
+        const children = mission.sequence.map((step, index) => ({
+          id: `${mission.id}:${step.id || `step${index + 1}`}`,
+          title: step.title || step.id || `Étape ${index + 1}`,
+          description: step.description || "",
+          type: step.action,
+          target: Math.max(1, Number(step.target) || 1),
+          params: {
+            ...(step.params || {}),
+            bibleMissionId: mission.id,
+            biblePattern: mission.pattern,
+            bibleSequenceIndex: index
+          },
+          requires: step.requires != null
+            ? asArray(step.requires).map((id) => `${mission.id}:${id}`)
+            : index > 0
+              ? [`${mission.id}:${mission.sequence[index - 1].id || `step${index}`}`]
+              : []
+        }));
+        return {
+          id: mission.id,
+          title: mission.title,
+          description: mission.description || "",
+          priority: Number(mission.priority) || 0,
+          passivePriorityAxis: mission.passivePriorityAxis || pattern.autonomyAxis || null,
+          journalIntro: mission.narrative?.revealed?.[0] || "",
+          bible: { version: VERSION, pattern: mission.pattern },
+          root: { id: `${mission.id}:root`, title: mission.title, type: "group", target: 1, children }
+        };
+      }
 
       const nodeIds = Object.fromEntries(
         (pattern.steps || []).map((step) => [
@@ -149,7 +187,7 @@
           title: specific.title || step.slot,
           description: specific.description || "",
           type: specific.params?.missionEventType || step.action,
-          target: Math.max(1, Number(specific.target) || 1),
+          target: Math.max(1, Number(specific.target ?? specific.params?.threshold) || 1),
           params: {
             ...(specific.params || {}),
             bibleMissionId: mission.id,
@@ -292,11 +330,20 @@
         instanceId: event.instanceId || null,
         kind,
         family,
+        knowledgeFamily: lower(event?.knowledgeFamily || definition?.knowledge?.family),
         category,
         subject,
         tags,
         mapId: event.mapId ?? BF.currentEngine?.currentMapId ?? null,
         zoneId: event.zoneId ?? BF.currentEngine?.currentZoneIndex ?? null,
+        source: lower(
+          event.source ||
+          event.interactionSource ||
+          event.detail?.source ||
+          event.detail?.interactionSource ||
+          event.detail?.requestedInteractionSource ||
+          ""
+        ),
         amount: Math.max(
           1,
           Number(event.quantity ?? event.detail?.amount ?? 1) || 1
@@ -315,9 +362,9 @@
       ) return false;
 
       const exactKeys = [
-        "objectId", "kind", "family", "subject",
+        "objectId", "kind", "family", "knowledgeFamily", "subject",
         "mapId", "zoneId", "direction", "fromMapId", "toMapId",
-        "missionId", "milestoneId", "skillId", "biome"
+        "missionId", "milestoneId", "skillId", "biome", "source"
       ];
 
       for (const key of exactKeys) {
@@ -426,6 +473,61 @@
       return true;
     }
 
+    applyMissionEffects(mission, phase = "completed") {
+      const effects = Array.isArray(mission?.effects)
+        ? mission.effects
+        : mission?.effects == null
+          ? []
+          : [mission.effects];
+      let changed = 0;
+
+      for (const [index, effect] of effects.entries()) {
+        if (!effect || (effect.phase || "completed") !== phase) continue;
+        const key = `${mission.id}:${phase}:${index}`;
+        if (this.state.effectsApplied[key]) continue;
+
+        if (effect.type === "autonomy.set") {
+          if (typeof BF.setAutonomyMode !== "function") continue;
+          if (BF.setAutonomyMode(effect.mode) !== true) continue;
+          this.state.effectsApplied[key] = Date.now();
+          changed += 1;
+          continue;
+        }
+
+        if (phase === "completed" && effect.type === "site.establish") {
+          const established = BF.establishBibleSite?.(mission, effect) === true;
+          if (!established) continue;
+          this.state.effectsApplied[key] = Date.now();
+          changed += 1;
+          continue;
+        }
+
+        if (phase === "completed" && effect.type === "inventory.consume") {
+          const quantity = Math.max(0, Number(effect.quantity) || 0);
+          if (!effect.inventoryKey || !quantity) continue;
+          const available = BF.progression?.availableInventory?.([effect.inventoryKey]) || 0;
+          if (available < quantity) continue;
+          const removed = BF.consumeInventoryPool?.([effect.inventoryKey], quantity) || 0;
+          if (removed !== quantity) continue;
+          this.state.effectsApplied[key] = Date.now();
+          changed += 1;
+        }
+
+        if (phase === "completed" && effect.type === "inventory.add") {
+          const quantity = Math.max(1, Number(effect.quantity) || 1);
+          const objectId = effect.objectId || effect.inventoryKey;
+          if (!objectId || !BF.progression?.addInventory) continue;
+          BF.progression.addInventory(objectId, quantity);
+          BF.progression.save?.();
+          this.state.effectsApplied[key] = Date.now();
+          changed += 1;
+        }
+      }
+
+      if (changed) this.saveState();
+      return changed;
+    }
+
     activateMission(mission, event = {}) {
       const manager = this.manager();
       if (!mission?.id || !manager) return false;
@@ -463,6 +565,10 @@
         performance.now() + 3500
       );
 
+      this.applyMissionEffects(mission, "activated");
+      if (mission.tutorialGuideOnActivated) {
+        global.dispatchEvent?.(new CustomEvent("bluefox:tutorial-guide", { detail: clone(mission.tutorialGuideOnActivated) }));
+      }
       this.emitNarrative(mission, "revealed", event);
       return true;
     }
@@ -500,9 +606,71 @@
       };
     }
 
+    progressTutorialNodes(rawEvent, normalized, activeBefore = null) {
+      const manager = this.manager();
+      if (!manager?.trees || !normalized || this.processingTutorialProgress) return 0;
+      this.processingTutorialProgress = true;
+      try {
+        let changed = 0;
+        const studyTypes = new Set(["interaction.observe", "interaction.inspect", "interaction.analyze"]);
+        const acquisitionTypes = new Set(["interaction.collect", "interaction.extract"]);
+        (manager.activeMissionIds || []).forEach((missionId) => {
+          if (activeBefore && !activeBefore.has(missionId)) return;
+          if (!["T01","T02","T03","T04","T06","T07"].includes(missionId)) return;
+          const tree = manager.trees.get(missionId);
+          const leaves = tree?.availableLeaves?.() || [];
+          let missionChanged = 0;
+          leaves.forEach((node) => {
+            const params = node.params || {};
+            const action = String(node.type || "").toLowerCase();
+            const isStudy = ["observe","inspect","analyze"].includes(action);
+            const isAcquire = ["collect","extract"].includes(action);
+            if (isStudy && !studyTypes.has(normalized.type)) return;
+            if (isAcquire && !acquisitionTypes.has(normalized.type)) return;
+            if (!isStudy && !isAcquire) return;
+            if (params.objectId && lower(params.objectId) !== lower(normalized.objectId)) return;
+            if (params.kind && lower(params.kind) !== lower(normalized.kind) && lower(params.kind) !== lower(normalized.cuoType)) return;
+            if (params.knowledgeFamily && lower(params.knowledgeFamily) !== lower(normalized.knowledgeFamily)) return;
+            if (params.kindsAny?.length && !params.kindsAny.some((kind) =>
+              [normalized.kind, normalized.cuoType, normalized.objectId].map(lower).includes(lower(kind))
+            )) return;
+          if (rawEvent?.detail?.missionNodeId && rawEvent.detail.missionNodeId !== node.id) return;
+            const amount = isAcquire ? Math.max(1, Number(normalized.amount) || 1) : 1;
+            if (typeof node.incrementDistinct === "function" && (params.distinctBy || missionId === "T06")) {
+              const key = normalized.objectId || normalized.instanceId || normalized.cuoType;
+              if (key && !node.incrementDistinct(key, amount)) return;
+            } else {
+              node.increment?.(amount);
+            }
+            changed += 1;
+            missionChanged += 1;
+          });
+          if (missionChanged) manager.memory?.saveTree?.(missionId, tree.toJSON?.() || tree);
+        });
+        if (changed) {
+          manager.syncLifecycleFromTrees?.();
+          manager.memory?.save?.();
+          manager.publish?.();
+        }
+        return changed;
+      } finally {
+        this.processingTutorialProgress = false;
+      }
+    }
+
     onObjectEvent(rawEvent) {
       const normalized = this.normalizeObjectEvent(rawEvent);
       if (!normalized) return;
+      const activeBefore = new Set(
+        this.catalog.filter((mission) => this.missionLifecycle(mission.id).active).map((mission) => mission.id)
+      );
+
+      if (["interaction.collect", "interaction.extract"].includes(normalized.type) && normalized.kind === "wood") {
+        this.state.shelterPreview = this.state.shelterPreview || { wood: 0, target: 100 };
+        this.state.shelterPreview.wood = Math.min(100, (Number(this.state.shelterPreview.wood) || 0) + Math.max(1, Number(normalized.amount) || 1));
+        this.saveState();
+        global.dispatchEvent?.(new CustomEvent("bluefox:shelter-preview-progress", { detail: clone(this.state.shelterPreview) }));
+      }
 
       let result = this.consumeTriggerEvent(normalized);
       let allowActivation = !result.activatedMissionId;
@@ -526,6 +694,7 @@
           amount: 1
         }, { allowActivation });
       }
+      this.progressTutorialNodes(rawEvent, normalized, activeBefore);
     }
 
     onMapTransition(detail) {
@@ -549,6 +718,52 @@
           type: "exploration.map_discovered"
         }, { allowActivation: !crossing.activatedMissionId });
       }
+      global.setTimeout?.(() => this.reviewTutorialInitiative(), 900);
+    }
+
+    reviewTutorialInitiative() {
+      const mission = this.byId.get("T07");
+      const manager = this.manager();
+      const tree = manager?.trees?.get?.("T07");
+      if (!mission || !tree || this.missionLifecycle("T07").status !== "active") return false;
+      const travel = tree.find?.("T07:travel");
+      const study = tree.find?.("T07:study");
+      if (!travel?.isComplete || !study || study.isComplete) return false;
+      const engine = BF.currentEngine;
+      if (!engine) return false;
+      const target = BF.ensureTutorialStudyTarget?.({
+        missionId: "T07",
+        microSceneId: mission.fallbackMicroSceneId,
+        kindsAny: ["tech_relic", "stele"]
+      });
+      if (!target) {
+        global.setTimeout?.(() => this.reviewTutorialInitiative(), 500);
+        return false;
+      }
+      target.userData.requestedInteraction = "observe";
+      target.userData.requestedInteractionSource = "mission";
+      target.userData.missionNodeId = study.id;
+      target.userData.missionId = "T07";
+      return engine.targetInteraction?.(target) !== false;
+    }
+
+    ensureInitialTutorial() {
+      const mission = this.byId.get("T01");
+      if (!mission || mission.initialState !== "active") return false;
+      const state = this.missionLifecycle("T01");
+      if (state.active || state.completed) return true;
+      if (!this.manager()) return false;
+      return this.activateMission(mission, { type: "manual", mapId: BF.currentEngine?.currentMapId || null });
+    }
+
+    updateCompletionGates() {
+      const manager = this.manager();
+      if (!manager) return false;
+      const waiting = this.catalog.some((mission) => mission.completionGate && this.missionLifecycle(mission.id).active && manager.trees?.get?.(mission.id)?.root?.isComplete);
+      if (!waiting) return false;
+      manager.syncLifecycleFromTrees?.();
+      manager.publish?.();
+      return true;
     }
 
     onResearchCrafted(detail = {}) {
@@ -846,14 +1061,30 @@
           this.manager()?.memory?.state?.missionLifecycle?.[mission.id];
 
         if (lifecycle?.status === "completed") {
+          this.applyMissionEffects(mission, "completed");
           this.unlockResearchRewards(mission);
+          if (mission.journalReport && !this.state.journalReportsApplied[mission.id]) {
+            BF.addJournalEntry?.({ id: `tutorial-report:${mission.id}`, type: "bible", title: "Rapport de BlueFox", text: mission.journalReport, mapId: BF.currentEngine?.currentMapId || null, important: true });
+            this.state.journalReportsApplied[mission.id] = Date.now();
+            this.saveState();
+          }
+          if (mission.tutorialGuideOnCompleted && !this.state.tutorialGuidesApplied[mission.id]) {
+            global.dispatchEvent?.(new CustomEvent("bluefox:tutorial-guide", { detail: clone(mission.tutorialGuideOnCompleted) }));
+            this.state.tutorialGuidesApplied[mission.id] = Date.now();
+            this.saveState();
+          }
 
-          const completionEvent = {
-            type: "progression.mission_completed",
-            missionId: mission.id,
-            amount: 1
-          };
-          this.consumeTriggerEvent(completionEvent);
+          const completionTriggerKey = `${mission.id}:completion-trigger`;
+          if (!this.state.effectsApplied[completionTriggerKey]) {
+            this.state.effectsApplied[completionTriggerKey] = Date.now();
+            this.saveState();
+            const completionEvent = {
+              type: "progression.mission_completed",
+              missionId: mission.id,
+              amount: 1
+            };
+            this.consumeTriggerEvent(completionEvent);
+          }
         }
 
         const key = `${mission.id}:completed`;
@@ -895,6 +1126,17 @@
         this.boundResearchCrafted
       );
 
+      if (!this.boundTutorialNavigate) {
+        this.boundTutorialNavigate = (event) => {
+          const direction = lower(event?.detail?.direction);
+          if (!direction || !["north","south","east","west"].includes(direction)) return;
+          if (this.missionLifecycle("T07").status !== "active") return;
+          this.manager()?.memory?.setFact?.("tutorial:T07:direction", direction);
+          this.manager()?.memory?.save?.();
+        };
+        global.addEventListener?.("bluefox:navigate", this.boundTutorialNavigate);
+      }
+
       return Boolean(this.unsubscribeObjectEvents);
     }
 
@@ -921,6 +1163,11 @@
       this.installCompletionGate();
       this.connect();
       this.started = true;
+      this.tutorialTimer ||= global.setInterval?.(() => {
+        this.ensureInitialTutorial();
+        this.updateCompletionGates();
+        this.reviewTutorialInitiative();
+      }, 600);
 
       return {
         ...registration,
@@ -937,6 +1184,11 @@
 
   BF.startBibleRuntime = () => runtime.start();
   BF.getBibleRuntimeDiagnostics = () => runtime.diagnostics();
+  BF.getShelterPreviewProgress = () => clone(runtime.state.shelterPreview);
+  BF.startBibleMission = (id) => {
+    const mission = runtime.byId.get(id);
+    return mission ? runtime.activateMission(mission, { type: "manual" }) : false;
+  };
 
   BF.Research = Object.freeze({
     list: (options) => runtime.researchRewardDefinitions()

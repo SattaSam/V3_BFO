@@ -1,6 +1,6 @@
 # BlueFox Odyssey — Architecture technique
 
-Référence : **commit `d59376559e71032b478fb01a84fdb9bdd6611736` — V5 Stable — 15 août 2026**
+Référence : **commit `d1796bf312f5e86da65317087b6c58db803bcd3c` — 16 août 2026**
 
 ## Sources de vérité
 - Objet / métadonnées : `engine/object-library.js`
@@ -16,35 +16,21 @@ Référence : **commit `d59376559e71032b478fb01a84fdb9bdd6611736` — V5 Stable 
 - Runtime Bible : `engine/bible-runtime-v0-1-unified.js`
 - Exécution mission : `engine/action-bridge.js`
 - Événements objets : `engine/object-event-registry.js`
+- Autonomie utilisateur : `engine/settings-ui-bridge.js`
+- Arbitrage BAC : `engine/behavior-arbitration-integration.js`
 
 ## Contrat CUO → événements → missions
-Le CUO ne sert pas uniquement au rendu 3D. Les définitions normalisées exposent :
-- actions ;
-- états ;
-- familles ;
-- tags ;
-- connaissances ;
-- recherche ;
-- ressources ;
-- progression ;
-- rareté ;
-- biomes ;
-- spawn.
-
-Ces métadonnées sont projetées dans `userData` puis réinjectées dans les événements consommés par le Runtime Bible.
+Le CUO expose actions, états, familles, tags, connaissances, recherche, ressources, progression, rareté, biomes et spawn. Ces métadonnées sont projetées dans `userData` puis réinjectées dans les événements consommés par le Runtime Bible.
 
 ## Contrat des micro-scènes CUSTOM
 - CUO Lab enregistre les transformations locales.
 - MAP_Test et le jeu doivent interpréter exactement les mêmes données.
 - `ObjectSpawner` ne réécrit pas les pivots internes.
-- Une MSC peut avoir trois rôles missionnels indépendants :
-  - `triggerContext`
-  - `objectiveSubject`
-  - `scenarioSupport`
+- Une MSC peut avoir trois rôles missionnels indépendants : `triggerContext`, `objectiveSubject`, `scenarioSupport`.
 - Une MSC associée à une mission n'est donc pas automatiquement un objectif.
 
-## Contrat missionnel actuel
-Le moteur possède déjà :
+## Contrat missionnel courant
+Le moteur dispose de :
 - missions simultanément actives ;
 - mission primaire / secondaires ;
 - prérequis ;
@@ -53,113 +39,57 @@ Le moteur possède déjà :
 - triggers interaction, mouvement, exploration et progression ;
 - filtres `objectId`, `family`, `subject`, `mapId`, `zoneId`, `biome`, tags ;
 - `uniqueOnly` sur les triggers ;
-- `targetBinding = instance | definition` dans le contrat ;
-- mission instanciable par map ;
+- ciblage exact par instance ;
+- `distinctBy` sur les objectifs d'étude ;
+- exploration par seuil de surface ;
+- cycle de déplacement / retour ;
+- spawn MSC persistant de soutien missionnel ;
 - fan-out passif d'une action vers plusieurs missions actives.
 
-### Écart V5 identifié : ciblage exact d'instance
-Le Runtime mémorise `instanceId` et le contrat autorise `targetBinding=instance`, mais l'ActionBridge ne garantit pas encore que la cible choisie est précisément cette instance.
+## Autonomie
+Source de vérité unique :
+- `off`
+- `movement-only`
+- `full`
 
-À corriger :
-```text
-bibleTarget.instanceId
-→ MissionPlanner
-→ ActionBridge
-→ candidat interactable exact
-```
+Le BAC et le watchdog doivent respecter ce mode. En `movement-only`, seules les décisions de navigation/exploration sont autorisées ; les décisions de collecte, recherche, relations et routines restent bloquées.
 
-Cette correction est un raccord, pas un nouveau moteur.
+## Tutoriel T01 à T08
+Le lot T01 à T08 est intégré techniquement sur la base courante mais n'est pas encore validé en jeu.
 
-### Distinction sur objectifs actifs
-Les triggers peuvent être uniques, mais `MissionNode` reste un compteur simple.
+Raccords utilisés :
+- capsule réelle du Site du crash ;
+- collecte plante / bois / minerais ;
+- Camp canonique et placement canonique ;
+- compteur parallèle bois du futur Refuge ;
+- exploration 60 % de `crystal` ;
+- étude de 3 objets distincts ;
+- Journal ;
+- guidage UI ;
+- menu Planète / suggestion de direction ;
+- semi-autonomie de déplacement ;
+- MSC de relique de secours ;
+- itinéraire connu de retour au camp.
 
-Extension requise :
-- `distinctBy: instanceId`
-- `distinctBy: mapId`
-- `distinctBy: biomeId`
-- `distinctBy: speciesId`
+### Règle T04
+T04 ne demande pas 100 bois. Elle utilise le projet Refuge comme compteur parallèle : **une nouvelle collecte de bois effectuée pendant T04 suffit à valider T04**, tandis que le compteur Refuge continue indépendamment vers 100.
 
-avec mémoire persistante des valeurs déjà comptées.
-
-### Portée
-Paramètre commun recommandé :
-- `local`
-- `map`
-- `global`
-
-Ne pas créer un patron différent uniquement pour une différence de portée.
-
-### Exploration
-Les variantes d'exploration doivent être pilotées par paramètres :
-- seuil de surface ;
-- nombre de zones ;
-- nombre de maps distinctes ;
-- nombre de biomes distincts ;
-- direction ;
-- retour.
-
-### Spawn MSC missionnel
-L'infrastructure `site.establish` prouve déjà la chaîne :
-```text
-mission effect
-→ placement
-→ ObjectSpawner.spawnMicroScene()
-→ rattachement map
-→ persistance
-→ restauration
-```
-
-À généraliser en effet de type `microScene.spawn` au lieu de créer un moteur séparé.
-
-### Durée / proximité / délai
-Nécessaires pour les comportements de faune et certaines scènes :
-- présence dans rayon pendant N secondes ;
-- délai avant deuxième signal ;
-- occurrence distincte si une scène doit être observée à nouveau.
-
-### Excursion / retour
-Un cycle valide est :
-```text
-départ
-→ au moins un changement de map
-→ retour à la cible connue
-```
-Deux sorties demandées = deux cycles distincts.
-
-## Stratégie de patrons mutualisés
-Cible : environ 8 familles génériques au total, en incluant les 3 déjà présentes.
-
-Les différences doivent être des paramètres, notamment :
-- unicité ;
-- portée ;
-- même instance ;
-- séquence ;
-- contexte MSC ;
-- durée ;
-- seuil ;
-- direction ;
-- effets.
-
-Les patrons doivent être développés en parallèle des extensions moteur qu'ils utilisent.
-
-## CUO / factions
-Ajouter au niveau des créatures/PNJ :
-- `speciesId`
-- `factionId`
-
-`cultureId` peut être porté par une MSC/instance.
-
-Les événements doivent hériter de ces identités afin que les missions puissent filtrer et modifier une réputation simple.
-
-## Ration
-`survival.rationRecipe` est déjà référencé par le moteur. Ne pas créer une seconde recette avant audit de cette source.
-
-## Non-régression
+## Non-régression obligatoire
 Tout correctif missionnel doit préserver :
 - un événement révèle au plus une mission ;
 - une action peut progresser plusieurs missions actives ;
 - commandes joueur prioritaires ;
+- modes `off / movement-only / full` respectés partout ;
 - MSC identiques entre CUO Lab / MAP_Test / jeu ;
 - camps jamais spontanés ;
 - navigation persistante ;
+- rations/BAC inchangés hors correction explicitement visée ;
 - aucune logique objet dans `map-registry.js`.
+
+## Validation en attente
+- **P01 à P08 : tests en jeu à effectuer.**
+- Vérifier sauvegarde/reprise.
+- Vérifier les prérequis entre missions.
+- Vérifier le Journal et les surbrillances UI.
+- Vérifier T07/T08 avec changements de maps réels.
+- Vérifier absence de régression BAC/navigation/rations.
