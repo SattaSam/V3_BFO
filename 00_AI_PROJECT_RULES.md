@@ -13,6 +13,7 @@ Toujours repartir du dépôt GitHub courant / commit explicitement indiqué.
 Ne jamais repartir d’un ZIP local ancien ou d’un fichier issu d’une conversation précédente.
 
 RÈGLE ABSOLUE — DÉMARRAGE DE CHAQUE NOUVEAU CHANTIER
+
 1. Le SHA du dernier commit fourni par l'utilisateur est la source de vérité et le point de départ obligatoire.
 2. Avant toute modification, auditer ce commit et reconstituer la dernière base stable à partir de CE commit.
 3. Interdiction de remplacer un fichier du commit par une copie locale, un ancien ZIP ou un fichier d'une conversation précédente.
@@ -26,27 +27,29 @@ pas de README parasite ;
 pas de .bat/.ps1/.patch sauf demande explicite ;
 ne jamais réintroduire une tentative rejetée ;
 vérifier la TODO active avant de déclarer un chantier terminé ;
-lire MASTER.md, ARCHITECTURE_TECHNIQUE.md, la TODO active et les autres références officielles avant toute passe structurante ;
+lire MASTER.md, ARCHITECTURE\_TECHNIQUE.md, la TODO active et les autres références officielles avant toute passe structurante ;
 BlueFox Odyssey - Référence projet
 Méthode de travail
-- Avant toute correction : diagnostic approfondi.
-- Audit complet du fichier concerné.
-- Audit de son interaction avec le reste du projet.
-- Exécution de tests dans l'environnement disponible.
-- Demande des fichiers manquants si nécessaire.
-- Livraison uniquement après validation technique.
+* Avant toute correction : diagnostic approfondi.
+* Audit complet du fichier concerné.
+* Audit de son interaction avec le reste du projet.
+* Exécution de tests dans l'environnement disponible.
+* Demande des fichiers manquants si nécessaire.
+* Livraison uniquement après validation technique.
 Engagement qualité
-- Ne plus annoncer un correctif comme terminé avant validation.
-- Signaler explicitement les hypothèses restantes.
-- Privilégier un refus de livraison à une livraison non vérifiée.
-- CUO Lab / MAP Test / jeu : même rendu MSC ;
+* Ne plus annoncer un correctif comme terminé avant validation.
+* Signaler explicitement les hypothèses restantes.
+* Privilégier un refus de livraison à une livraison non vérifiée.
+* CUO Lab / MAP Test / jeu : même rendu MSC ;
 map-registry.js protégé ;
 
 DOCUMENT SOURCE
-Cahier_des_Charges_BlueFox_Odyssey updated
-BlueFox_BIBLE_MAIN_MISSIONS_NORMALISEES_V1
-BlueFox_CUO_v2_Production_complet
-CUM  & CUM V2
-CUO_Lab_BANC_VALIDATION_3D
-CONVENTIONS_MAPS_IMAGES
+Cahier\_des\_Charges\_BlueFox\_Odyssey updated
+BlueFox\_BIBLE\_MAIN\_MISSIONS\_NORMALISEES\_V1
+BlueFox\_CUO\_v2\_Production\_complet
+CUM  \& CUM V2
+CUO\_Lab\_BANC\_VALIDATION\_3D
+CONVENTIONS\_MAPS\_IMAGES
+
+IMI — CONTRAT IA D'INTÉGRATION DES MISSIONS
 
