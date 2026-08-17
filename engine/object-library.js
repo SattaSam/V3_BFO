@@ -1337,10 +1337,7 @@
     } else if (["eroded_monolith", "lantern_mushrooms", "survey_beacon", "fossil_root_arch", "abandoned_nest"].includes(type)) {
       if (type === "eroded_monolith") {
         const body = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.9, 3.4, 7), material(THREE, { color: 0x59636b, roughness: 0.96 }));
-        body.position.y = 1.7;
-        body.rotation.z = 0.08;
-        root.add(body);
-        colliders = [{ offset: new THREE.Vector3(), radius: 0.82 }];
+        body.position.y = 1.7; body.rotation.z = 0.08; root.add(body); colliders = [{ offset: new THREE.Vector3(), radius: 0.82 }];
       } else if (type === "lantern_mushrooms") {
         root.name = "LanternMushrooms";
         const stemMaterial = material(THREE, {
@@ -1506,18 +1503,7 @@
       } else {
         const bowl=new THREE.Mesh(new THREE.TorusGeometry(0.9,0.22,8,24),material(THREE,{color:0x76644f,roughness:0.95})); bowl.rotation.x=Math.PI/2; bowl.position.y=0.18; root.add(bowl); for(let i=0;i<9;i+=1){const twig=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.045,1.3,6),material(THREE,{color:0x5e4a38,roughness:1})); const a=i*Math.PI*2/9; twig.position.set(Math.cos(a)*0.6,0.22,Math.sin(a)*0.6); twig.rotation.z=Math.cos(a)*1.25; twig.rotation.x=Math.sin(a)*1.25; root.add(twig);}
       }
-      if (["eroded_monolith","survey_beacon","fossil_root_arch"].includes(type)) {
-        hitbox = makeHitbox(
-          THREE,
-          root,
-          type === "fossil_root_arch" ? 2.25 : 0.9,
-          type === "fossil_root_arch" ? 4 : 3.2,
-          type
-        );
-        if (type === "eroded_monolith") {
-          hitbox.userData.interactionRadius = 0.82;
-        }
-      }
+      if (["eroded_monolith","survey_beacon","fossil_root_arch"].includes(type)) hitbox = makeHitbox(THREE, root, type === "fossil_root_arch" ? 2.25 : 0.9, type === "fossil_root_arch" ? 4 : 3.2, type);
     } else if (type === "scout_drone" || type === "harvest_drone") {
       const isScout = type === "scout_drone";
       const droneRoot = new THREE.Group();

@@ -1,48 +1,72 @@
 # BLUEFOX ODYSSEY — DEV HISTORIQUE
 
-## Session du 16 août 2026 — Intégration tutoriel T01 à T08
+## Session du 17 août 2026 — Rétablissement V5.2, sécurisation CPU / sauvegarde / population
 
-### Base
-- Commit de référence : `d1796bf312f5e86da65317087b6c58db803bcd3c` — `fix regression 4`.
+### Base finale de session
+- Commit audité : `cd4a5187e40294b3f6680243af8ae9f997c392a6`.
+- Objet principal de la session : rétablir progressivement les comportements validés de la veille et sécuriser la base avant P01→P012.
 
-### Contexte
-Le lot tutoriel T01 à T08 a été reconnecté à la chaîne missionnelle existante en réutilisant les éléments déjà présents dans le dépôt : capsule du Site du crash, Camp, placements, événements objets, exploration, Journal, menu Planète, navigation connue et support MSC.
+### RuntimeBudget / CPU
+Angle mort confirmé :
+- les runtimes flore, faune, PNJ, phénomènes et passifs utilisaient déjà `RuntimeBudget.shouldUpdate()`;
+- `special-object-runtime.js` animait encore tous ses objets à chaque `built.update()`.
 
-### Décisions fonctionnelles
-- T01 : capsule réelle du Site du crash.
-- T02 : collecte de trois familles : plante, bois, minerais.
-- T03 : premier Camp, avec MSC et placement canoniques existants.
-- T04 : démonstration de progression parallèle. Le projet Refuge reste un projet séparé ; une nouvelle collecte de 1 bois pendant T04 valide T04 et rend T05 disponible. Le compteur bois Refuge poursuit indépendamment son objectif de 100.
-- T05 : 60 % de la map `crystal`, qui comporte un seul plateau.
-- T06 : 3 objets distincts à étudier, dont stèle et arche ; synthèse dans le Journal et guidage vers le Journal.
-- T07 : guidage vers le menu Planète, suggestion d'une direction, déplacement en semi-autonomie et cible de curiosité sur la nouvelle map. Une MSC de secours peut garantir la cible si nécessaire.
-- T08 : guidage vers la commande de retour au camp et retour autonome par route connue.
+Correction :
+- raccord au `RuntimeBudget` existant, sans second système de throttling ;
+- PNJ spéciaux → `npc` ;
+- animal nocturne → `fauna` ;
+- plante carnivore → `flora` ;
+- tempêtes, îlots, cristaux et drones → `phenomenon` ;
+- respawns et logique drones à 1 Hz conservés.
 
-### Autonomie / BAC
-- Les modes canoniques restent `off`, `movement-only`, `full`.
-- Les protections BAC et watchdog ont été réalignées avec ces modes.
-- Le comportement `movement-only` doit limiter l'autonomie aux déplacements/exploration.
-- Les mécanismes de rations et les optimisations récentes de navigation doivent être préservés.
+### Sauvegarde / dirty-state
+Cause confirmée :
+- `save-ui-bridge.js` appelait `persistRuntime()` avant la capture de l'état ;
+- `persistRuntime()` appelait `BF.progression.save()` ;
+- `ProgressionRegistry.save()` mettait systématiquement `updatedAt = Date.now()` ;
+- l'autosave créait donc lui-même une différence de signature.
 
-### Statut
-- Intégration technique : **faite**.
-- Validation en jeu : **non faite**.
-- **Tests P01 à P08 à effectuer avant validation du jalon.**
+Correction :
+- retrait uniquement de `BF.progression.save()` du pré-flush global ;
+- les mutations réelles de progression restent sauvegardées par `ProgressionRegistry` ;
+- `MissionMemory` conserve son modèle dirty/flush.
 
-### Validation attendue
-- chaîne complète T01 → T08 ;
-- absence d'auto-validation par historique antérieur ;
-- sauvegarde/reprise à chaque étape ;
-- T04 valide uniquement sur une nouvelle collecte de bois pendant T04 ;
-- T06 impose bien 3 objets distincts ;
-- T07/T08 fonctionnent sur topologie réelle ;
-- UI tutorielle visible et compréhensible ;
-- aucune régression BAC/navigation/rations/musique/chargement.
+### Incident de livraison `save-ui-bridge.js`
+Un premier patch a été construit à partir d'un extrait partiel du fichier et a tronqué la fin de `save-ui-bridge.js`.
+Cette erreur a été commitée dans `f838d018...`.
 
-### Avancement projet
-Estimation de pilotage après cette intégration : **environ 78 %**.
+Réparation :
+- restauration du fichier complet ;
+- réapplication de l'unique suppression nécessaire ;
+- commit réparé/audité : `cd4a5187...`.
 
-Le travail restant est principalement de validation et d'industrialisation : tests T01-T08, T09-T12, GAME-shelter complet, factions/réputation, industrialisation des 182 missions, performance/finitions et packaging/mobile.
+Règle désormais explicite :
+- ne jamais construire un fichier destiné au dépôt à partir d'un extrait de lecture partielle ;
+- toujours partir du fichier complet du HEAD courant ou d'un fichier complet fourni par l'utilisateur ;
+- vérifier le diff exact avant livraison.
+
+### Population / MSC
+Règle clarifiée :
+- `floating_islands` : îlot suspendu garanti ;
+- désert avec roches en lévitation : garantie ;
+- marais avec îles flottantes : garantie ;
+- autres contextes magnétiques : seulement probabilité renforcée.
+
+Les MSC coralliennes underwater bioluminescentes restent intégrées et leurs transformations locales restent inchangées.
+
+### Autres éléments récupérés / sécurisés
+- récupération progressive caméra ;
+- récupération bulles de parole ;
+- protections CPU précédentes conservées ;
+- audio adaptatif non modifié pendant cette passe.
+
+### Conclusion de session
+La majeure partie de la journée a consisté à rétablir et sécuriser une base fonctionnelle déjà atteinte la veille, avec trois gains techniques réels :
+1. suppression de l'angle mort RuntimeBudget des objets spéciaux ;
+2. autosave dirty-state réellement exploitable ;
+3. règle population/îlots clarifiée et rétablie.
+
+La base `cd4a5187...` est considérée comme point de départ pour l'intégration P01→P012.
 
 ---
 
@@ -54,11 +78,45 @@ Le travail restant est principalement de validation et d'industrialisation : tes
 ### Audit documentaire
 - Bible principale : 182 missions normalisées.
 - Principe confirmé : la narration reste souveraine ; la technique traduit sans réécrire.
+- Les formulations « comparer », « comprendre », « reconnaître », « déduire » ne nécessitent pas systématiquement un moteur spécialisé.
 - Les MSC associées doivent distinguer trois rôles : triggerContext, objectiveSubject, scenarioSupport.
+
+### Audit moteur
+Présent :
+- triggers d'interactions et d'exploration ;
+- mémoire persistante ;
+- plusieurs missions actives ;
+- fan-out passif ;
+- un événement révèle au maximum une mission ;
+- targetBinding contractuel ;
+- instanceId/mapId/zoneId dans les événements ;
+- mission instanciable par map ;
+- infrastructure de spawn MSC via site.establish.
+
+Écarts ciblés :
+- targetBinding=instance non propagé jusqu'au choix exact d'ActionBridge ;
+- objectifs actifs sans distinctBy générique ;
+- agrégation multi-map/biome à ajouter ;
+- spawn MSC missionnel à généraliser ;
+- durée/proximité/délai ;
+- excursion/retour ;
+- effets réputation/branche/faits.
+
+### Audit CUO
+- ObjectLibrary porte déjà actions, états, familles, tags, recherche, ressources et progression.
+- tech_relic, stele, arch et plusieurs objets archéologiques utilisent déjà une sémantique d'instance.
+- composants techniques présents : pulse_core, memory_capsule, relay_block, logic_prism, survey_beacon.
+- drones fonctionnels et PNJ existants.
+- besoin : ajouter speciesId/factionId aux types de créatures/PNJ pertinents.
 
 ### Décision architecture missions
 - Limiter le nombre de patrons.
 - Mutualiser les variantes avec des interrupteurs.
 - Développer chaque patron en parallèle du raccord moteur associé.
-- Cible de travail : environ 8 familles de patrons.
-- Le tutoriel sert de banc de validation avant industrialisation des 182 missions.
+- Cible de travail : environ 8 familles de patrons au total.
+- Après validation : intégrer P01–P012.
+- Ensuite seulement industrialiser les 182 missions.
+
+### Discipline documentaire
+Les documents officiels sont ceux de `docs/README.txt`.
+Les DOCX et TODO historiques ne doivent pas être utilisés comme sources de pilotage.

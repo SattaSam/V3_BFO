@@ -3,7 +3,7 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions = BF.Missions || {};
-  const VERSION = "explore-scope-v2-batched-save";
+  const VERSION = "explore-scope-v1";
 
   const normalize = (value) => String(value ?? "").trim().toLowerCase();
 
@@ -56,7 +56,9 @@
     }
 
     const identity = nodeDistinctValue(node, detail);
-    if (identity != null) return node.incrementDistinct?.(identity, 1) || false;
+    if (identity != null) {
+      return node.incrementDistinct?.(identity, 1) || false;
+    }
 
     return node.increment(Math.max(1, Number(detail.amount) || 1));
   };
@@ -66,8 +68,6 @@
     if (!manager?.trees?.size) return 0;
 
     let changed = 0;
-    const changedTrees = [];
-
     manager.trees.forEach((tree, missionId) => {
       if (manager.ensureLifecycle?.(missionId)?.status !== "active") return;
       let treeChanged = false;
@@ -87,11 +87,9 @@
 
       if (treeChanged) {
         tree.refresh();
-        changedTrees.push(tree);
+        manager.memory?.saveTree?.(tree);
       }
     });
-
-    changedTrees.forEach((tree) => manager.memory?.saveTree?.(tree));
 
     if (changed) {
       manager.syncLifecycleFromTrees?.();
@@ -102,21 +100,12 @@
     return changed;
   };
 
-  let queuedExplorationDetail = null;
-  let explorationTimer = null;
   const onExplorationChanged = (event) => {
     const detail = event?.detail || {};
-    queuedExplorationDetail = {
+    progressActiveExploration({
       ...detail,
       amount: Math.max(1, Number(detail.revealedSectorCount) || 1)
-    };
-    if (explorationTimer) return;
-    explorationTimer = global.setTimeout?.(() => {
-      explorationTimer = null;
-      const pending = queuedExplorationDetail;
-      queuedExplorationDetail = null;
-      if (pending) progressActiveExploration(pending);
-    }, 120);
+    });
   };
 
   const onMapTransition = (event) => {
@@ -130,7 +119,9 @@
       biomeId: detail.biomeId || detail.biome || null,
       biome: detail.biome || null,
       amount: 1,
-      surfacePercent: Number(BF.getMapExplorationState?.(mapId)?.surfacePercent) || 0
+      surfacePercent: Number(
+        BF.getMapExplorationState?.(mapId)?.surfacePercent
+      ) || 0
     });
   };
 

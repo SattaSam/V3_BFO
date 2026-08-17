@@ -1350,7 +1350,45 @@
     }
   }
 
+  const speechBubbleTimers = new WeakMap();
+
+  function speechBubbleDuration(text) {
+    const length = String(text || "").trim().length;
+    const extraMs = length <= 45
+      ? 1500
+      : length <= 100
+        ? 1500 + ((length - 45) / 55) * 1300
+        : length <= 190
+          ? 2800 + ((length - 100) / 90) * 1700
+          : 4500;
+    const assumedCurrentMs = 5000;
+    return Math.min(12000, Math.round(assumedCurrentMs + extraMs));
+  }
+
+  function regulateSpeechBubbles() {
+    document.querySelectorAll(".speech-bubble").forEach((bubble) => {
+      const text = bubble.textContent?.trim() || "";
+      if (!text) return;
+      const signature = `${text.length}:${text}`;
+      if (bubble.dataset.bluefoxSpeechTiming === signature) return;
+
+      const previousTimer = speechBubbleTimers.get(bubble);
+      if (previousTimer) window.clearTimeout(previousTimer);
+
+      bubble.dataset.bluefoxSpeechTiming = signature;
+      bubble.hidden = false;
+      const timer = window.setTimeout(() => {
+        if (!bubble.isConnected) return;
+        if (bubble.dataset.bluefoxSpeechTiming !== signature) return;
+        bubble.hidden = true;
+        speechBubbleTimers.delete(bubble);
+      }, speechBubbleDuration(text));
+      speechBubbleTimers.set(bubble, timer);
+    });
+  }
+
   function scan() {
+    regulateSpeechBubbles();
     const activeMap = global.BlueFox3D?.currentEngine?.currentMapId;
     const activeDefinition = global.BlueFox3D?.maps?.[activeMap];
     const location = document.querySelector(".brand-block strong");

@@ -16,11 +16,12 @@ RÈGLE ABSOLUE — DÉMARRAGE DE CHAQUE NOUVEAU CHANTIER
 
 1. Le SHA du dernier commit fourni par l'utilisateur est la source de vérité et le point de départ obligatoire.
 2. Avant toute modification, auditer ce commit et reconstituer la dernière base stable à partir de CE commit.
-3. Interdiction de remplacer un fichier du commit par une copie locale, un ancien ZIP ou un fichier d'une conversation précédente.
-4. Un fichier local ne peut servir de copie technique que si son Git blob SHA est vérifié identique au blob du commit de départ ; sinon il est rejeté.
-5. Avant livraison d'un cumulatif, comparer chaque fichier modifié à sa version du commit de départ et vérifier que les fonctions déjà validées présentes dans ce même fichier n'ont pas régressé.
-6. Si la version exacte d'un fichier du commit ne peut pas être obtenue ou vérifiée, ne pas reconstruire approximativement : demander le fichier ou refuser la livraison.
-7. Un correctif cumulatif doit cumuler les travaux validés depuis le dernier commit de référence ; il ne doit jamais réinjecter une version antérieure d'un fichier partagé.
+3. Avant toute décision technique, identifier le propriétaire dans le “Registre canonique des propriétaires” de docs/ARCHITECTURE\_TECHNIQUE.md. Si un propriétaire y est défini, il prime sur toute nouvelle architecture ou inférence.
+4. Interdiction de remplacer un fichier du commit par une copie locale, un ancien ZIP ou un fichier d'une conversation précédente.
+5. Un fichier local ne peut servir de copie technique que si son Git blob SHA est vérifié identique au blob du commit de départ ; sinon il est rejeté.
+6. Avant livraison d'un cumulatif, comparer chaque fichier modifié à sa version du commit de départ et vérifier que les fonctions déjà validées présentes dans ce même fichier n'ont pas régressé.
+7. Si la version exacte d'un fichier du commit ne peut pas être obtenue ou vérifiée, ne pas reconstruire approximativement : demander le fichier ou refuser la livraison.
+8. Un correctif cumulatif doit cumuler les travaux validés depuis le dernier commit de référence ; il ne doit jamais réinjecter une version antérieure d'un fichier partagé.
 pas de fichiers versionnés dans les patchs committables ;
 ZIP = uniquement fichiers modifiés ;
 pas de README parasite ;

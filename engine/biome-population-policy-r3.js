@@ -54,7 +54,7 @@ const patch=(def,pop)=>{
  const magneticWorld=biomeId==="magnetic"||profile==="magnetic"||/magnet/.test(context);
  const magneticRoll=deterministic(def);
  const alienFloatingSwamp=profile==="swamp"&&/marais|swamp/.test(context)&&/flott|floating/.test(context)&&/extraterrestre|alien/.test(context);
- const isletMap=(biomeId==="floating_islands")||(biomeId==="magnetic")||alienFloatingSwamp;
+ const isletMap=(biomeId==="floating_islands")||alienFloatingSwamp;
  let dec=(pop.decorations||[]).map(e=>[e[0],Number(e[1])||0]);
  let rw=(pop.resourceWeights||[]).map(e=>({...e}));
  let rocks=Number(pop.rockCount)||0;
@@ -108,7 +108,7 @@ const patch=(def,pop)=>{
  if(profile==="archipelago"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",9);}
  if(floating||profile==="atypical"){dec=dec.filter(([t])=>t!=="nature_tree");addOrRaise(dec,"luminescent_tree",7);addOrRaise(dec,"fog_bank",2);}
  if(isletMap&&!tutorial)addOrRaise(dec,"mobile_islet",9);
- else dec=dec.filter(([t])=>t!=="mobile_islet");
+ else if(!magneticWorld)dec=dec.filter(([t])=>t!=="mobile_islet");
  if(SPECIAL.has(profile))rw=rw.map(e=>({...e,weight:(RARE_MINERALS.has(e.family)||["magnetic_ore","logic_prism","pulse_core","memory_capsule"].includes(e.family))?e.weight*1.35:e.weight}));
  if(!NATURE.has(profile)&&!SPECIAL.has(profile)){rw=rw.filter(e=>!RARE_PLANTS.has(e.family));dec=dec.filter(([t])=>!RARE_PLANTS.has(t));}
  if(!MINERAL.has(profile)&&!SPECIAL.has(profile))rw=rw.filter(e=>!RARE_MINERALS.has(e.family));

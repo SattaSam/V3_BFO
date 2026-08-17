@@ -170,34 +170,6 @@
       const cellSize = (bounds * 2) / map.gridSize;
       const originX = Number(origin.x) || 0;
       const originZ = Number(origin.z) || 0;
-      const engine = BF.currentEngine;
-      const liveMap =
-        engine?.currentMapId === mapId
-          ? engine.currentMap
-          : null;
-      const zoneRegions = Array.isArray(liveMap?.zoneRegions)
-        ? liveMap.zoneRegions
-        : [];
-
-      const isWalkableTarget = (x, z) => {
-        if (!zoneRegions.length) return true;
-        return zoneRegions.some((zone) => {
-          const halfSize = Math.max(
-            1,
-            Number(zone?.halfSize) ||
-            (Number(zone?.radius) || 0) / 0.62
-          );
-          const margin = Math.max(
-            0.8,
-            Number(engine?.character?.radius) || 0.5
-          );
-          return (
-            Math.abs(x - Number(zone?.center?.x || 0)) <= halfSize - margin &&
-            Math.abs(z - Number(zone?.center?.z || 0)) <= halfSize - margin
-          );
-        });
-      };
-
       const candidates = [];
       for (let column = 0; column < map.gridSize; column += 1) {
         for (let row = 0; row < map.gridSize; row += 1) {
@@ -205,13 +177,7 @@
           if (map.visitedSectors[key]) continue;
           const x = -bounds + (column + 0.5) * cellSize;
           const z = -bounds + (row + 0.5) * cellSize;
-          if (!isWalkableTarget(x, z)) continue;
-          candidates.push({
-            key,
-            x,
-            z,
-            distance: Math.hypot(x - originX, z - originZ)
-          });
+          candidates.push({ key, x, z, distance: Math.hypot(x - originX, z - originZ) });
         }
       }
       candidates.sort((left, right) => left.distance - right.distance);

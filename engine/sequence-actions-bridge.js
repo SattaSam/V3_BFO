@@ -3,7 +3,7 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions = BF.Missions || {};
-  const VERSION = "sequence-actions-v2-tutorial-travel";
+  const VERSION = "sequence-actions-v1";
   const STUDY_TYPES = new Set(["observe", "inspect", "analyze"]);
 
   const asArray = (value) =>
@@ -15,22 +15,20 @@
   const sequenceSteps = (mission) =>
     asArray(mission?.sequence).filter((step) => step && typeof step === "object");
 
-  const sequenceSlot = (step, index) => step?.id || step?.slot || `step${index + 1}`;
-
   const compileSequenceMission = (mission, runtime) => {
     const steps = sequenceSteps(mission);
     if (mission?.pattern !== "SEQUENCE_ACTIONS" || steps.length < 2) return null;
 
     const nodeIds = steps.map((step, index) =>
-      `${mission.id}:${sequenceSlot(step, index)}`
+      `${mission.id}:${step.slot || `step${index + 1}`}`
     );
 
     const children = steps.map((step, index) => {
-      const slot = sequenceSlot(step, index);
+      const slot = step.slot || `step${index + 1}`;
       const requires = step.requires != null
         ? asArray(step.requires).map((required) => {
             const requiredIndex = steps.findIndex((candidate, candidateIndex) =>
-              sequenceSlot(candidate, candidateIndex) === required
+              (candidate.slot || `step${candidateIndex + 1}`) === required
             );
             return requiredIndex >= 0 ? nodeIds[requiredIndex] : null;
           }).filter(Boolean)
@@ -65,8 +63,17 @@
         BF.BiblePatterns?.SEQUENCE_ACTIONS?.autonomyAxis ||
         null,
       journalIntro: mission.narrative?.revealed?.[0] || "",
-      bible: { version: "0.1", pattern: mission.pattern },
-      root: { id: `${mission.id}:root`, title: mission.title, type: "group", target: 1, children }
+      bible: {
+        version: runtime?.constructor ? "0.1" : "0.1",
+        pattern: mission.pattern
+      },
+      root: {
+        id: `${mission.id}:root`,
+        title: mission.title,
+        type: "group",
+        target: 1,
+        children
+      }
     };
   };
 
@@ -85,17 +92,20 @@
   };
 
   const sequenceTargetKey = (missionId) => `sequenceTarget:${missionId}`;
+
   const identityFromEvent = (event) => ({
     instanceId: String(event?.instanceId || ""),
     objectId: String(event?.objectId || "").toLowerCase(),
     cuoType: String(event?.detail?.cuoType || "").toLowerCase()
   });
+
   const bindSequenceTarget = (manager, missionId, event) => {
     const identity = identityFromEvent(event);
     if (!identity.instanceId && !identity.objectId && !identity.cuoType) return false;
     manager?.memory?.setFact?.(sequenceTargetKey(missionId), identity);
     return true;
   };
+
   const eventMatchesSequenceTarget = (manager, missionId, event) => {
     const bound = manager?.memory?.getFact?.(sequenceTargetKey(missionId));
     if (!bound) return true;
@@ -111,16 +121,23 @@
     if (!Manager?.prototype || Manager.prototype.__sequenceActionsBindingV1) return false;
     const originalConsume = Manager.prototype.consumeObjectEvent;
     if (typeof originalConsume !== "function") return false;
+
     Manager.prototype.consumeObjectEvent = function consumeSequenceObjectEvent(event) {
       const missionId = event?.detail?.missionId || this.currentAction?.missionId || null;
       if (missionId) {
         const tree = this.trees?.get?.(missionId);
-        const currentNode = this.currentAction?.nodeId ? tree?.find?.(this.currentAction.nodeId) : null;
-        const isSequence = currentNode?.params?.biblePattern === "SEQUENCE_ACTIONS";
+        const currentNode = this.currentAction?.nodeId
+          ? tree?.find?.(this.currentAction.nodeId)
+          : null;
+        const isSequence =
+          currentNode?.params?.biblePattern === "SEQUENCE_ACTIONS";
         const sameTarget = currentNode?.params?.sameTarget === true;
+
         if (isSequence && sameTarget) {
           const existing = this.memory?.getFact?.(sequenceTargetKey(missionId));
-          if (existing && !eventMatchesSequenceTarget(this, missionId, event)) return false;
+          if (existing && !eventMatchesSequenceTarget(this, missionId, event)) {
+            return false;
+          }
           if (!existing && STUDY_TYPES.has(normalizeAction(currentNode.type))) {
             bindSequenceTarget(this, missionId, event);
           }
@@ -128,6 +145,7 @@
       }
       return originalConsume.call(this, event);
     };
+
     Manager.prototype.__sequenceActionsBindingV1 = true;
     return true;
   };
@@ -136,20 +154,29 @@
     const Bridge = Missions.ActionBridge;
     if (!Bridge?.prototype || Bridge.prototype.__sequenceActionsTargetingV1) return false;
     const originalExecute = Bridge.prototype.execute;
+
     Bridge.prototype.execute = function executeSequenceAction(action, now) {
       if (
         action?.params?.biblePattern === "SEQUENCE_ACTIONS" &&
         action?.params?.sameTarget === true &&
         STUDY_TYPES.has(normalizeAction(action.type))
       ) {
-        const bound = this.engine?.missionManager?.memory?.getFact?.(sequenceTargetKey(action.missionId));
+        const bound = this.engine?.missionManager?.memory?.getFact?.(
+          sequenceTargetKey(action.missionId)
+        );
         if (bound?.instanceId) {
-          const target = (this.engine.currentMap?.interactables || []).find((object) => {
-            if (!object?.userData?.active) return false;
-            const instanceId = String(object.userData?.instanceId || object.userData?.worldAnchor?.userData?.instanceId || "");
-            return instanceId === String(bound.instanceId);
-          });
-          if (!target) return false;
+          const candidates = (this.engine.currentMap?.interactables || [])
+            .filter((object) => {
+              if (!object?.userData?.active) return false;
+              const instanceId = String(
+                object.userData?.instanceId ||
+                object.userData?.worldAnchor?.userData?.instanceId ||
+                ""
+              );
+              return instanceId === String(bound.instanceId);
+            });
+          if (!candidates.length) return false;
+          const target = candidates[0];
           target.userData.requestedInteraction = action.type;
           target.userData.requestedInteractionSource = "mission";
           target.userData.missionSubject = action.params?.subject || null;
@@ -161,37 +188,9 @@
       }
       return originalExecute.call(this, action, now);
     };
+
     Bridge.prototype.__sequenceActionsTargetingV1 = true;
     return true;
-  };
-
-  const progressSequenceTravel = (detail = {}) => {
-    const manager = BF.currentEngine?.missionManager;
-    if (!manager?.trees) return 0;
-    let changed = 0;
-    (manager.activeMissionIds || []).forEach((missionId) => {
-      const tree = manager.trees.get(missionId);
-      const leaves = tree?.availableLeaves?.() || [];
-      leaves.forEach((node) => {
-        if (node?.params?.biblePattern !== "SEQUENCE_ACTIONS") return;
-        if (normalizeAction(node.type) !== (Missions.ActionType?.TRAVEL || "travel")) return;
-        if (node.params.requireNewMap === true && detail.isNew !== true) return;
-        if (node.params.directionFact) {
-          const expected = String(manager.memory?.getFact?.(node.params.directionFact) || "").toLowerCase();
-          const actual = String(detail.direction || "").toLowerCase();
-          if (!expected || expected !== actual) return;
-        }
-        node.increment?.(1);
-        manager.memory?.saveTree?.(missionId, tree.toJSON?.() || tree);
-        changed += 1;
-      });
-    });
-    if (changed) {
-      manager.syncLifecycleFromTrees?.();
-      manager.memory?.save?.();
-      manager.publish?.();
-    }
-    return changed;
   };
 
   const validateSequenceMission = (mission) => {
@@ -204,8 +203,10 @@
     }
     const slots = new Set();
     steps.forEach((step, index) => {
-      const slot = sequenceSlot(step, index);
-      if (slots.has(slot)) errors.push(`${mission.id} · sequence[${index}] : identifiant dupliqué.`);
+      const slot = step.slot || `step${index + 1}`;
+      if (slots.has(slot)) {
+        errors.push(`${mission.id} · sequence[${index}].slot : identifiant dupliqué.`);
+      }
       slots.add(slot);
       const action = normalizeAction(step.action);
       if (!Object.values(Missions.ActionType || {}).includes(action)) {
@@ -217,7 +218,9 @@
     });
     steps.forEach((step, index) => {
       asArray(step.requires).forEach((required) => {
-        if (!slots.has(required)) errors.push(`${mission.id} · sequence[${index}].requires : étape inconnue ${required}.`);
+        if (!slots.has(required)) {
+          errors.push(`${mission.id} · sequence[${index}].requires : slot inconnu ${required}.`);
+        }
       });
     });
     return errors;
@@ -228,28 +231,53 @@
     if (!contract?.validateMission || contract.__sequenceActionsContractV1) return false;
     const originalValidateMission = contract.validateMission;
     const originalValidateCatalog = contract.validateCatalog;
+
     const validateMission = (mission, patterns, options = {}) => {
       const report = originalValidateMission(mission, patterns, options);
       if (mission?.pattern !== "SEQUENCE_ACTIONS") return report;
       const legacySlotErrors = (report.errors || []).filter((message) =>
-        !message.includes("slots : objet requis") && !message.includes("slots.")
+        !message.includes("slots : objet requis") &&
+        !message.includes("slots.")
       );
       const sequenceErrors = validateSequenceMission(mission);
-      return { ...report, ok: legacySlotErrors.length + sequenceErrors.length === 0, errors: [...legacySlotErrors, ...sequenceErrors] };
+      return {
+        ...report,
+        ok: legacySlotErrors.length + sequenceErrors.length === 0,
+        errors: [...legacySlotErrors, ...sequenceErrors]
+      };
     };
+
     const validateCatalog = (catalog, patterns, options = {}) => {
       const list = Array.isArray(catalog) ? catalog : Object.values(catalog || {});
       const base = originalValidateCatalog(catalog, patterns, options);
-      const sequenceMissionIds = new Set(list.filter((mission) => mission?.pattern === "SEQUENCE_ACTIONS").map((mission) => mission.id));
-      const errors = (base.errors || []).filter((message) =>
-        ![...sequenceMissionIds].some((id) => message.startsWith(`${id} · slots`))
+      const sequenceMissionIds = new Set(
+        list.filter((mission) => mission?.pattern === "SEQUENCE_ACTIONS").map((mission) => mission.id)
       );
-      sequenceMissionIds.forEach((id) => errors.push(...validateSequenceMission(list.find((item) => item.id === id))));
-      return Object.freeze({ ...base, ok: errors.length === 0, errors: Object.freeze(errors) });
+      const errors = (base.errors || []).filter((message) =>
+        ![...sequenceMissionIds].some((id) =>
+          message.startsWith(`${id} · slots`)
+        )
+      );
+      sequenceMissionIds.forEach((id) => {
+        const mission = list.find((item) => item.id === id);
+        errors.push(...validateSequenceMission(mission));
+      });
+      return Object.freeze({
+        ...base,
+        ok: errors.length === 0,
+        errors: Object.freeze(errors)
+      });
     };
+
+    // Object.freeze empêche le remplacement direct du contrat existant.
     BF.BibleContractV01 = Object.freeze({
-      ...contract, validateMission, validateCatalog,
-      sequenceActions: Object.freeze({ version: VERSION, minSteps: 2 }),
+      ...contract,
+      validateMission,
+      validateCatalog,
+      sequenceActions: Object.freeze({
+        version: VERSION,
+        minSteps: 2
+      }),
       __sequenceActionsContractV1: true
     });
     return true;
@@ -272,8 +300,5 @@
     targeting: Boolean(Missions.ActionBridge?.prototype?.__sequenceActionsTargetingV1)
   });
 
-  global.addEventListener("bluefox:map-transition-completed", (event) => {
-    global.setTimeout(() => progressSequenceTravel(event.detail || {}), 0);
-  });
   install();
 })(window);

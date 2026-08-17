@@ -1,0 +1,77 @@
+
+
+Mode BlueFox strict — commence par lire 00_AI_PROJECT_RULES.md, docs/README.txt puis uniquement les références officielles désignées. Le HEAD GitHub courant est la seule base technique. Les stratégies, propriétaires et conventions déjà définis dans ces documents sont obligatoires : ne les redéfinis pas et ne crée aucune couche, abstraction, bridge ou système parallèle si le propriétaire existant peut porter le besoin. Pour chaque chantier : audit ciblé des fichiers réellement concernés et de leurs interactions → stratégie synthétique fondée sur l’existant → GO → correctif. Travaille à l’échelle nécessaire au chantier : atomique pour une correction locale, industrialisée pour un lot missionnel. Avant livraison, compare le résultat au HEAD et rejette toute modification hors périmètre ou toute perte d’un comportement déjà présent.
+Toute décision technique antérieure déjà inscrite dans les références ou présente dans le code courant prime sur une nouvelle idée de l’IA ; toute dérogation doit être explicitement justifiée et validée avant codage.
+
+Projet BlueFox — Nouveau chantier
+
+Nous ouvrons un nouveau chantier sur le dépôt GitHub courant.
+
+1. Commence impérativement par appliquer le protocole projet :
+
+lire 00_AI_PROJECT_RULES.md ;
+lire docs/README.txt ;
+lire uniquement les documents de référence officiels qu’il désigne ;
+identifier le commit GitHub courant et le prendre comme base exclusive ;
+ne jamais repartir d’un ancien ZIP, d’un ancien fichier local ou d’une ancienne tentative rejetée ;
+auditer les fichiers concernés et leurs interactions avant de proposer une correction.
+
+2. Chantier du jour : [NOM DU CHANTIER]
+
+Priorité : [P0 / P1 / P2]
+
+Objectif précis : [DESCRIPTION COURTE]
+
+Pour ce chantier, prends également en compte :
+
+les validations fonctionnelles obtenues dans nos échanges récents ;
+les versions stables ou comportements validés mentionnés dans les documents ou fichiers transmis dans la conversation ;
+l’état réel du dépôt actuel.
+
+Une fonctionnalité validée dans nos essais mais non commitée doit être considérée comme une spécification fonctionnelle à récupérer, pas comme absente ou abandonnée.
+
+3. Première passe uniquement : diagnostic + stratégie
+
+Essaie d’être rapide et ciblé.
+
+Je veux :
+
+l’état exact de la fonctionnalité dans le commit courant ;
+ce qui existe déjà et doit être conservé ;
+ce qui manque ou a régressé ;
+ce qui avait été validé précédemment et mérite d’être récupéré ;
+les fichiers réellement concernés ;
+les risques de régression ;
+une stratégie d’intégration synthétique mais techniquement justifiée.
+
+Ne génère encore aucun correctif à cette étape.
+
+4. Après ma validation de la stratégie
+
+Tu réalises le correctif en repartant exclusivement des fichiers du commit courant ou de la cible désignée.
+
+Contraintes de livraison :
+
+ne modifier que les fichiers strictement nécessaires ;
+conserver toutes les fonctions déjà validées présentes dans ces fichiers ;
+aucun fichier avec suffixe de version ajouté pour le patch ;
+aucun README parasite ;
+aucun .bat, .ps1 ou .patch sauf demande ;
+ZIP contenant uniquement les fichiers réellement modifiés ;
+vérifier le diff contre le commit de départ ;
+effectuer les tests disponibles ;
+ne jamais annoncer le correctif comme validé si une partie n’a pas pu être vérifiée.
+
+5. Une fois le correctif validé en jeu
+
+On décide ensemble s’il faut :
+
+le commiter ;
+mettre à jour MASTER.md, ARCHITECTURE_TECHNIQUE.md, ROADMAP_TODO.md, DEV_HISTORIQUE.md et les autres références officielles réellement concernées.
+
+
+----------------
+Chantier en cours : 
+
+Chantier BlueFox : P0 — [sujet].
+Applique le protocole projet déjà établi. Audite le commit courant + nos validations d’aujourd’hui + le document de référence transmis. Fais-moi d’abord une stratégie d’intégration synthétique et justifiée. Après ma validation, génère le correctif propre prêt à commiter.

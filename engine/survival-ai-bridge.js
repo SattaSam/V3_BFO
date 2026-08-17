@@ -38,117 +38,6 @@
     restGain: 10
   });
 
-  const RATION_RECIPE_ID = "ration-basic-v2";
-  const RATION_POLICY = Object.freeze({
-    criticalMax: 3,
-    lowMax: 11,
-    acceptableMax: 25,
-    targetMin: 12,
-    targetComfort: 25,
-    offlineCollectionIntervalMs: 20 * 60 * 1000,
-    offlineMaxCollections: 12,
-    offlinePreferredRestGainPerHour: 6
-  });
-
-  const rationCount = () =>
-    Number(BF.Rations?.snapshot?.().rations) || 0;
-
-  const rationProfile = () => {
-    const count = rationCount();
-    if (count <= RATION_POLICY.criticalMax) {
-      return {
-        level: "critical",
-        shouldCollect: true,
-        shouldCraft: true,
-        targetMin: RATION_POLICY.targetMin,
-        targetComfort: RATION_POLICY.targetComfort
-      };
-    }
-    if (count <= RATION_POLICY.lowMax) {
-      return {
-        level: "low",
-        shouldCollect: true,
-        shouldCraft: true,
-        targetMin: RATION_POLICY.targetMin,
-        targetComfort: RATION_POLICY.targetComfort
-      };
-    }
-    if (count <= RATION_POLICY.acceptableMax) {
-      return {
-        level: "acceptable",
-        shouldCollect: false,
-        shouldCraft: false,
-        targetMin: RATION_POLICY.targetMin,
-        targetComfort: RATION_POLICY.targetComfort
-      };
-    }
-    return {
-      level: "comfortable",
-      shouldCollect: false,
-      shouldCraft: false,
-      targetMin: RATION_POLICY.targetMin,
-      targetComfort: RATION_POLICY.targetComfort
-    };
-  };
-
-  const rationReward = () =>
-    BF.Research?.get?.(RATION_RECIPE_ID) || null;
-
-  const rationRequirements = () =>
-    Array.isArray(rationReward()?.requirements)
-      ? rationReward().requirements
-      : [];
-
-  const rationIngredientKeys = () =>
-    rationRequirements()
-      .map((entry) => entry.inventoryKey || entry.resource)
-      .filter(Boolean);
-
-  const rationRecipeUnlocked = () =>
-    BF.Research?.isUnlocked?.(RATION_RECIPE_ID) === true;
-
-  const rationAutoCraftEnabled = () =>
-    rationReward()?.autoCraft === true;
-
-  const rationCampAccessible = () =>
-    BF.canAccessCampInventory?.() === true;
-
-  const rationAvailableFor = (key) =>
-    BF.progression?.availableInventory?.([key]) || 0;
-
-  const rationCraftableCount = (limit = Infinity, options = {}) => {
-    if (!rationRecipeUnlocked()) return 0;
-    if (!options.ignoreShelter && !rationCampAccessible()) return 0;
-
-    const requirements = rationRequirements();
-    if (!requirements.length) return 0;
-
-    const capacity = requirements.reduce((maximum, entry) => {
-      const key = entry.inventoryKey || entry.resource;
-      const quantity = Math.max(1, Number(entry.quantity) || 1);
-      if (!key) return 0;
-      return Math.min(
-        maximum,
-        Math.floor(rationAvailableFor(key) / quantity)
-      );
-    }, Number.isFinite(Number(limit))
-      ? Math.max(0, Math.floor(Number(limit)))
-      : Number.MAX_SAFE_INTEGER);
-
-    return Math.max(0, capacity);
-  };
-
-  BF.RationPolicy = Object.freeze({
-    recipeId: RATION_RECIPE_ID,
-    profile: rationProfile,
-    ingredientKeys: rationIngredientKeys,
-    recipeUnlocked: rationRecipeUnlocked,
-    autoCraftEnabled: rationAutoCraftEnabled,
-    craftableCount: rationCraftableCount,
-    campAccessible: rationCampAccessible,
-    policy: RATION_POLICY
-  });
-
   const legacyEnergy = () => {
     try {
       const save = JSON.parse(
@@ -727,16 +616,13 @@
   });
 
   global.addEventListener(
-    "bluefox:map-transition-completed",
-    (event) => {
-      const detail = event?.detail || {};
-      if (!detail.fromMapId || !detail.toMapId) return;
+    "bluefox:navigate",
+    () =>
       recordAction(
         "travel",
-        detail.source === "autonomy" ? "autonomy" : "manual",
+        "manual",
         { axis: "exploration" }
-      );
-    }
+      )
   );
 
   global.addEventListener(

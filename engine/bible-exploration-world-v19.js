@@ -74,29 +74,6 @@
     map.interactables.push(hitbox);
   }
 
-  function bindMissionTarget(engine, record, hitbox, index = 0) {
-    if (!record?.missionId || !hitbox) return false;
-    hitbox.userData.bibleMissionId = record.missionId;
-    hitbox.userData.biblePersistentScene = record.id;
-    const functional = hitbox.userData.functional || {};
-    const functionalId = String(hitbox.userData.catalogId || functional.id || "");
-    const functionalType = String(hitbox.userData.libraryType || functional.type || "");
-    const wanted = record.targetKinds || record.targetTypes || [];
-    const matches = !wanted.length || wanted.includes(functionalType) || wanted.includes(functionalId);
-    if (!matches) return false;
-    const instanceId = hitbox.userData.instanceId || `${record.id}:target:${index}`;
-    hitbox.userData.instanceId = instanceId;
-    engine.missionManager?.memory?.setFact?.(`bibleTarget:${record.missionId}`, {
-      binding: "instance",
-      instanceId,
-      objectId: functionalId || null,
-      cuoType: functionalType || null,
-      mapId: engine.currentMapId
-    });
-    engine.missionManager?.memory?.save?.();
-    return true;
-  }
-
   function renderMissionScenes(engine) {
     const definition = BF.maps?.[engine?.currentMapId], map = engine?.currentMap;
     if (!definition || !map?.group || !BF.ObjectSpawner) return;
@@ -107,7 +84,6 @@
         origin:record.anchor, rotation:record.rotation||0, scene:map.group,
         force:true, source:`bible-mission:${record.id}`
       });
-      let targetBound = false;
       records.forEach((spawned, index) => {
         if (!spawned?.root) return;
         if (index === 0) spawned.root.name = `BibleMissionScene:${record.id}`;
@@ -115,7 +91,48 @@
         spawned.root.userData.biblePersistentScene = record.id;
         if (spawned.instance?.hitbox) {
           const hitbox = spawned.instance.hitbox;
-          if (!targetBound) targetBound = bindMissionTarget(engine, record, hitbox, index);
+          hitbox.userData.bibleMissionId = record.missionId;
+          hitbox.userData.biblePersistentScene = record.id;
+
+          const functionalId = String(
+            hitbox.userData.functional?.id ||
+            hitbox.userData.catalogId ||
+            spawned.root.userData.functional?.id ||
+            spawned.root.userData.catalogId ||
+            ""
+          );
+          const functionalType = String(
+            hitbox.userData.functional?.type ||
+            hitbox.userData.libraryType ||
+            spawned.root.userData.functional?.type ||
+            spawned.root.userData.objectType ||
+            ""
+          );
+
+          if (
+            record.missionId === "BIBLE-V01-RECONNAISSANCE" &&
+            (functionalId === "TEC-RELI-M-001" || functionalType === "tech_relic")
+          ) {
+            const instanceId =
+              hitbox.userData.instanceId ||
+              spawned.root.userData.instanceId ||
+              `${record.id}:relic`;
+            hitbox.userData.instanceId = instanceId;
+            spawned.root.userData.instanceId ||= instanceId;
+
+            // Liaison native utilisée par Object-M0 à la sélection ET à la validation.
+            engine.missionManager?.memory?.setFact?.(
+              `bibleTarget:${record.missionId}`,
+              {
+                binding: "instance",
+                instanceId,
+                objectId: "TEC-RELI-M-001",
+                cuoType: "tech_relic"
+              }
+            );
+            engine.missionManager?.memory?.save?.();
+          }
+
           map.interactables.push(hitbox);
         }
         (spawned.instance?.colliders || []).forEach((collider) => {
@@ -128,112 +145,6 @@
       engine.character?.setColliders?.(map.colliders);
     });
   }
-
-  function targetKind(object) {
-    return String(
-      object?.userData?.functional?.type ||
-      object?.userData?.libraryType ||
-      object?.userData?.functional?.id ||
-      object?.userData?.catalogId ||
-      ""
-    );
-  }
-
-  BF.ensureTutorialStudyTarget = ({ missionId, microSceneId, kindsAny = [] } = {}) => {
-    const engine = BF.currentEngine;
-    if (!engine?.currentMap || !missionId) return null;
-    const current = (engine.currentMap.interactables || []).find((object) => {
-      if (object?.userData?.active === false || !kindsAny.includes(targetKind(object))) return false;
-      const actions = object?.userData?.functional?.interaction?.actions || [];
-      return actions.includes("observe") || actions.includes("inspect") || actions.includes("analyze");
-    });
-    if (current) {
-      bindMissionTarget(engine, { id:`${missionId}:natural`, missionId, targetKinds:kindsAny }, current, 0);
-      return current;
-    }
-
-    const definition = BF.maps?.[engine.currentMapId];
-    if (!definition || !BF.PersistentMicroScenes || !microSceneId) return null;
-    const origin = engine.character?.root?.position;
-    const anchor = origin ? { x: origin.x + 6, y: 0, z: origin.z + 2 } : null;
-    const record = BF.PersistentMicroScenes.ensure(definition, {
-      missionId,
-      microSceneId,
-      persistent:true,
-      spawnOnce:true,
-      anchor,
-      rotation:0,
-      targetKinds:kindsAny
-    });
-    if (!record) return null;
-    record.targetKinds = kindsAny.slice();
-    BF.PersistentMicroScenes.spawnForBuiltMap(engine.THREE, engine.currentMap, definition);
-    renderMissionScenes(engine);
-    const spawned = (engine.currentMap.interactables || []).find((object) =>
-      object?.userData?.bibleMissionId === missionId && kindsAny.includes(targetKind(object))
-    );
-    if (spawned) bindMissionTarget(engine, record, spawned, 0);
-    return spawned || null;
-  };
-
-
-  BF.establishBibleSite = (mission, effect) => {
-    const engine = BF.currentEngine;
-    const mapId = engine?.currentMapId;
-    const map = engine?.currentMap;
-    const memory = engine?.missionManager?.memory;
-    if (!engine || !mapId || !map?.group || !memory || !BF.ObjectSpawner) return false;
-    const preset = BF.maps?.[mapId]?.crashSite?.campSitePlacements?.[effect?.microSceneId] || null;
-    const anchor = preset?.position || engine.character?.root?.position;
-    if (!anchor || !effect?.microSceneId || !BF.MicroScenes?.get?.(effect.microSceneId)) return false;
-
-    memory.state.siteProgression = memory.state.siteProgression || {};
-    const site = {
-      id: `${mapId}:${effect.kind}:primary`,
-      stage: Math.max(1, Number(effect.stage) || 1),
-      kind: effect.kind,
-      mapId,
-      missionId: mission?.id || null,
-      microSceneId: effect.microSceneId,
-      anchor: { x:Number(anchor.x)||0, y:Number(anchor.y)||0, z:Number(anchor.z)||0 },
-      rotation: Array.isArray(preset?.rotation) ? [...preset.rotation] : [0,0,0],
-      interactionRadius: 8,
-      establishedAt: Date.now()
-    };
-    memory.state.siteProgression[mapId] = site;
-    memory.save?.();
-
-    if (map.group.getObjectByProperty?.("name", `BlueFoxSite:${site.id}`)) return true;
-    const spawner = new BF.ObjectSpawner({ THREE:engine.THREE, scene:map.group, palette:BF.maps?.[mapId]?.palette });
-    const records = spawner.spawnMicroScene(effect.microSceneId, {
-      origin:site.anchor,
-      rotation:site.rotation,
-      scene:map.group,
-      force:true,
-      source:`site:${site.id}`
-    });
-    if (!Array.isArray(records) || !records.length) return false;
-    records.forEach((record, index) => {
-      if (!record?.root) return;
-      if (index === 0) {
-        record.root.name = `BlueFoxSite:${site.id}`;
-        record.root.userData.catalogId = effect.kind;
-        record.root.userData.libraryType = effect.kind;
-        record.root.userData.shelterKind = effect.kind;
-      }
-      record.root.userData.establishedSite = site.id;
-      record.root.userData.bibleMissionId = mission?.id || null;
-      if (record.instance?.hitbox) map.interactables.push(record.instance.hitbox);
-      (record.instance?.colliders || []).forEach((collider) => {
-        const transformRoot = record.objectRoot || record.root;
-        transformRoot.updateWorldMatrix(true, false);
-        const position = transformRoot.localToWorld(collider.offset.clone());
-        map.colliders.push({ position, radius:collider.radius, owner:record.root });
-      });
-    });
-    engine.character?.setColliders?.(map.colliders || []);
-    return true;
-  };
 
   const wrapped = async function mountBibleExplorationWorldV19(options) {
     const engine = await originalMount.call(this, options);

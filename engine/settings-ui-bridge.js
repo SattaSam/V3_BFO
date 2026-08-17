@@ -1,112 +1,748 @@
 (function(global){
 "use strict";
-const KEY="bluefox_odyssey_save_v1",BUDGET=225;
-const AUTONOMY_KEY="bluefox_autonomy_mode_v1";
-const AUTONOMY_MODES=["off","movement-only","full"];
-const AX={exploration:"exploration",collecte:"collection",collection:"collection",recherche:"research",relations:"relations",relation:"relations",repos:"survival",survie:"survival","repos / survie":"survival","repos/survie":"survival"};
-const PAIR_TIP={
-"curieux|prudent":"Curieux : Observe spontanément ce qui l'entoure. ↑ Exploration, observation et recherche.\nPrudent : Limite les prises de risque. ↑ Sécurité, survie et retour à la base.",
-"courageux|craintif":"Courageux : Affronte plus facilement l'inconnu. ↑ Exploration des zones dangereuses.\nCraintif : Évite les situations menaçantes. ↑ Préférence pour les zones sûres.",
-"empathique|indifferent":"Empathique : S'intéresse aux êtres vivants. ↑ Relations, faune et PNJ.\nIndifférent : Reste focalisé sur ses objectifs. ↑ Ignore plus souvent les interactions sociales.",
-"respectueux|destructeur":"Respectueux : Préserve davantage son environnement. ↑ Réduit les destructions inutiles.\nDestructeur : Exploite les ressources sans hésiter. ↑ Collecte rapide, impact environnemental plus important."
+
+const BF = global.BlueFox3D = global.BlueFox3D || {};
+const KEY = "bluefox_odyssey_save_v1";
+const BUDGET = 225;
+
+const AUTONOMY_MODE_KEY = "bluefox_autonomy_mode_v1";
+const AUTONOMY_UNLOCK_KEY = "bluefox_autonomy_unlock_v1";
+const NEW_GAME_KEY = "bluefox_new_game_start_v1";
+const AUTONOMY_MODES = Object.freeze(["off", "semi", "full"]);
+const AUTONOMY_LABELS = Object.freeze({
+  off: "OFF",
+  semi: "SEMI",
+  full: "FULL"
+});
+
+const AX = {
+  exploration: "exploration",
+  collecte: "collection",
+  collection: "collection",
+  recherche: "research",
+  relations: "relations",
+  relation: "relations",
+  repos: "survival",
+  survie: "survival",
+  "repos / survie": "survival",
+  "repos/survie": "survival"
 };
-let lock=false,lastAxis=null;
-const norm=v=>String(v||"").toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
-const clamp=v=>Math.max(0,Math.min(100,Math.round(Number(v)||0)));
-const axisFor=v=>AX[norm(v)]||null;
-const split=v=>String(v||"").split(/\s+[—–-]\s+/).map(x=>x.trim()).filter(Boolean);
-const normalizeAutonomyMode=mode=>mode==="movement"?"movement-only":mode;
-const autonomyMode=()=>{const mode=normalizeAutonomyMode(localStorage.getItem(AUTONOMY_KEY));return AUTONOMY_MODES.includes(mode)?mode:"full";};
-function setAutonomyMode(mode){
-  mode=normalizeAutonomyMode(mode);
-  if(!AUTONOMY_MODES.includes(mode)) return false;
-  localStorage.setItem(AUTONOMY_KEY,mode);
-  global.BlueFox3D=global.BlueFox3D||{};
-  global.BlueFox3D.autonomyMode=mode;
-  global.dispatchEvent(new CustomEvent("bluefox:autonomy-mode",{detail:{mode}}));
-  document.querySelectorAll(".bac-autonomy-choice").forEach(button=>{
-    button.classList.toggle("active",button.dataset.mode===mode);
-    button.setAttribute("aria-pressed",button.dataset.mode===mode?"true":"false");
+
+const PAIR_TIP = {
+  "curieux|prudent":
+    "Curieux : Observe spontanément ce qui l'entoure. ↑ Exploration, observation et recherche.\n" +
+    "Prudent : Limite les prises de risque. ↑ Sécurité, survie et retour à la base.",
+  "courageux|craintif":
+    "Courageux : Affronte plus facilement l'inconnu. ↑ Exploration des zones dangereuses.\n" +
+    "Craintif : Évite les situations menaçantes. ↑ Préférence pour les zones sûres.",
+  "empathique|indifferent":
+    "Empathique : S'intéresse aux êtres vivants. ↑ Relations, faune et PNJ.\n" +
+    "Indifférent : Reste focalisé sur ses objectifs. ↑ Ignore plus souvent les interactions sociales.",
+  "respectueux|destructeur":
+    "Respectueux : Préserve davantage son environnement. ↑ Réduit les destructions inutiles.\n" +
+    "Destructeur : Exploite les ressources sans hésiter. ↑ Collecte rapide, impact environnemental plus important."
+};
+
+let lock = false;
+let lastAxis = null;
+let autonomyUiOpen = false;
+let autonomyGateTimer = 0;
+let settingsObserver = null;
+let observedSettings = null;
+let scheduled = false;
+let scheduledAxis = null;
+
+const norm = (value) =>
+  String(value || "")
+    .toLocaleLowerCase("fr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const clamp = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+const axisFor = (value) => AX[norm(value)] || null;
+const split = (value) =>
+  String(value || "")
+    .split(/\s+[—–-]\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+/* -------------------------------------------------------------------------- */
+/* Priorités / traits BAC existants — comportement conservé                   */
+/* -------------------------------------------------------------------------- */
+
+function sanitizePriorities(src, preferred) {
+  if (!src || typeof src !== "object" || Array.isArray(src)) return src;
+  const priorities = { ...src };
+  delete priorities.Construction;
+  delete priorities.construction;
+
+  const entries = Object.keys(priorities)
+    .map((key) => ({ key, axis: axisFor(key), value: clamp(priorities[key]) }))
+    .filter((item) => item.axis);
+
+  entries.forEach((item) => {
+    priorities[item.key] = item.value;
   });
+
+  let overflow = entries.reduce((sum, item) => sum + item.value, 0) - BUDGET;
+  if (overflow <= 0) return priorities;
+
+  for (
+    const item of entries
+      .filter((entry) => entry.axis !== preferred)
+      .sort((left, right) => right.value - left.value)
+  ) {
+    if (overflow <= 0) break;
+    const delta = Math.min(item.value, overflow);
+    item.value -= delta;
+    priorities[item.key] = item.value;
+    overflow -= delta;
+  }
+
+  if (overflow > 0) {
+    const item =
+      entries.find((entry) => entry.axis === preferred) ||
+      entries.sort((left, right) => right.value - left.value)[0];
+    if (item) {
+      const delta = Math.min(item.value, overflow);
+      item.value -= delta;
+      priorities[item.key] = item.value;
+    }
+  }
+  return priorities;
+}
+
+function guard() {
+  const proto = global.Storage?.prototype;
+  if (!proto || proto.setItem.__bacFinal) return;
+  const original = proto.setItem;
+  const guarded = function(key, value) {
+    if (key === KEY) {
+      try {
+        const save = JSON.parse(String(value));
+        if (save && typeof save === "object" && save.priorities) {
+          save.priorities = sanitizePriorities(save.priorities, lastAxis);
+          value = JSON.stringify(save);
+        }
+      } catch {}
+    }
+    return original.call(this, key, value);
+  };
+  guarded.__bacFinal = true;
+  proto.setItem = guarded;
+}
+
+function updateTrait(row) {
+  const input = row.querySelector('input[type="range"]');
+  const output = row.querySelector("b");
+  const label = row.querySelector("span");
+  const names =
+    row.dataset.traitLeft && row.dataset.traitRight
+      ? [row.dataset.traitLeft, row.dataset.traitRight]
+      : split(label?.textContent);
+
+  if (!input || !output || names.length !== 2) return;
+  row.dataset.traitLeft = names[0];
+  row.dataset.traitRight = names[1];
+
+  const left = clamp(input.value);
+  const right = 100 - left;
+  row.classList.add("trait-bipolar-row");
+  label.classList.add("trait-pole", "trait-pole-left");
+  output.classList.add("trait-balance-value", "trait-pole", "trait-pole-right");
+  label.textContent = `${names[0]} ${left} %`;
+  output.textContent = `${names[1]} ${right} %`;
+  input.setAttribute(
+    "aria-valuetext",
+    `${names[0]} ${left} %, ${names[1]} ${right} %`
+  );
+}
+
+function tooltips(row) {
+  row.removeAttribute("title");
+  row.querySelectorAll("[title]").forEach((element) => element.removeAttribute("title"));
+  row.querySelectorAll(".bac-trait-info").forEach((element) => element.remove());
+
+  const left = norm(row.dataset.traitLeft);
+  const right = norm(row.dataset.traitRight);
+  const text = PAIR_TIP[`${left}|${right}`] || "";
+
+  if (text) {
+    row.dataset.tooltip = text;
+    row.classList.add("bac-trait-tooltip-row");
+    row.setAttribute("aria-label", text.replace(/\n/g, " "));
+  } else {
+    delete row.dataset.tooltip;
+    row.classList.remove("bac-trait-tooltip-row");
+    row.removeAttribute("aria-label");
+  }
+}
+
+function entries(settings) {
+  return [...settings.querySelectorAll(".slider-row")]
+    .filter((row) => !row.classList.contains("trait-row"))
+    .map((row) => {
+      const label = row.querySelector("span");
+      const input = row.querySelector('input[type="range"]');
+      const output = row.querySelector("b");
+      const raw =
+        row.dataset.priorityLabel ||
+        label?.textContent?.replace(/\s+\d+\s*%.*$/, "").trim() ||
+        "";
+      row.dataset.priorityLabel = raw;
+      return { row, input, output, axis: axisFor(raw) };
+    })
+    .filter((item) => item.axis && item.input);
+}
+
+const total = (items) =>
+  items.reduce((sum, item) => sum + clamp(item.input.value), 0);
+
+function indicator(settings, items) {
+  let indicatorNode = settings.querySelector(".bac-priority-budget");
+  if (!indicatorNode) {
+    indicatorNode = document.createElement("div");
+    indicatorNode.className = "bac-priority-budget";
+    const first = items[0]?.row;
+    first?.parentElement
+      ? first.parentElement.insertBefore(indicatorNode, first)
+      : settings.prepend(indicatorNode);
+  }
+
+  const used = total(items);
+  const available = BUDGET - used;
+  indicatorNode.classList.toggle("is-valid", available === 0);
+  indicatorNode.classList.toggle("is-invalid", available !== 0);
+  indicatorNode.textContent =
+    available === 0
+      ? `Priorités : ${used}/${BUDGET} points répartis`
+      : available > 0
+        ? `Priorités : ${used}/${BUDGET} · ${available} point${available > 1 ? "s" : ""} disponible${available > 1 ? "s" : ""}`
+        : `Priorités : ${used}/${BUDGET} · dépassement de ${Math.abs(available)} point${Math.abs(available) > 1 ? "s" : ""}`;
+}
+
+function publish(item) {
+  item.input.dispatchEvent(new Event("input", { bubbles: true }));
+  item.input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function enforce(settings, axis = null) {
+  if (lock) return;
+  const items = entries(settings);
+  if (items.length !== 5) return;
+
+  let overflow = total(items) - BUDGET;
+  if (overflow <= 0) {
+    indicator(settings, items);
+    return;
+  }
+
+  lock = true;
+  try {
+    const changed = items.find((item) => item.axis === axis);
+    let candidates = items
+      .filter((item) => item !== changed)
+      .sort((left, right) => clamp(right.input.value) - clamp(left.input.value));
+    const modified = new Set();
+
+    while (overflow > 0) {
+      const adjustable = candidates.filter((item) => clamp(item.input.value) > 0);
+      if (!adjustable.length) break;
+      const share = Math.max(1, Math.ceil(overflow / adjustable.length));
+      let reduced = 0;
+
+      for (const item of adjustable) {
+        if (reduced >= overflow) break;
+        const current = clamp(item.input.value);
+        const delta = Math.min(current, share, overflow - reduced);
+        if (!delta) continue;
+        item.input.value = String(current - delta);
+        if (item.output) item.output.textContent = `${current - delta}%`;
+        modified.add(item);
+        reduced += delta;
+      }
+
+      if (!reduced) break;
+      overflow -= reduced;
+      candidates = adjustable;
+    }
+
+    if (overflow > 0 && changed) {
+      const current = clamp(changed.input.value);
+      changed.input.value = String(current - overflow);
+      if (changed.output) changed.output.textContent = `${current - overflow}%`;
+      modified.add(changed);
+    }
+
+    modified.forEach(publish);
+    indicator(settings, entries(settings));
+  } finally {
+    lock = false;
+  }
+}
+
+function scheduleEnforce(settings, axis = null) {
+  scheduledAxis = axis || scheduledAxis;
+  if (settings.dataset.bacEnforceScheduled === "1") return;
+  settings.dataset.bacEnforceScheduled = "1";
+  requestAnimationFrame(() => {
+    settings.dataset.bacEnforceScheduled = "0";
+    const nextAxis = scheduledAxis;
+    scheduledAxis = null;
+    if (settings.isConnected) enforce(settings, nextAxis);
+  });
+}
+
+function connect(settings) {
+  const items = entries(settings);
+  if (items.length !== 5) return;
+
+  items.forEach((item) => {
+    if (item.input.dataset.bacPriorityConnected === "final") return;
+    item.input.dataset.bacPriorityConnected = "final";
+    const run = () => {
+      if (lock) return;
+      lastAxis = item.axis;
+      scheduleEnforce(settings, item.axis);
+    };
+    item.input.addEventListener("input", run);
+    item.input.addEventListener("change", run);
+  });
+
+  indicator(settings, items);
+  scheduleEnforce(settings, null);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Autonomie OFF / SEMI / FULL                                                */
+/* -------------------------------------------------------------------------- */
+
+function isFreshNewGame() {
+  const startedAt = Number(global.localStorage.getItem(NEW_GAME_KEY)) || 0;
+  return startedAt > 0 && Date.now() - startedAt < 120000;
+}
+
+function readAutonomyUnlocks() {
+  try {
+    const parsed = JSON.parse(global.localStorage.getItem(AUTONOMY_UNLOCK_KEY) || "null");
+    if (parsed && typeof parsed === "object") {
+      return {
+        semi: parsed.semi === true,
+        full: parsed.full === true
+      };
+    }
+  } catch {}
+
+  return isFreshNewGame()
+    ? { semi: false, full: false }
+    : { semi: true, full: true };
+}
+
+function writeAutonomyUnlocks(unlocks) {
+  global.localStorage.setItem(
+    AUTONOMY_UNLOCK_KEY,
+    JSON.stringify({
+      semi: unlocks.semi === true,
+      full: unlocks.full === true
+    })
+  );
+}
+
+function readAutonomyMode() {
+  const stored = String(global.localStorage.getItem(AUTONOMY_MODE_KEY) || "").toLowerCase();
+  if (AUTONOMY_MODES.includes(stored)) return stored;
+
+  const mode = isFreshNewGame()
+    ? "off"
+    : global.localStorage.getItem(NEW_GAME_KEY)
+      ? "full"
+      : "off";
+
+  global.localStorage.setItem(AUTONOMY_MODE_KEY, mode);
+  return mode;
+}
+
+function autonomyAvailability(mode) {
+  if (mode === "off") return true;
+  const unlocks = readAutonomyUnlocks();
+  if (mode === "semi") return unlocks.semi;
+  if (mode === "full") return unlocks.full;
+  return false;
+}
+
+function publishAutonomyState(source = "system") {
+  const mode = readAutonomyMode();
+  const unlocks = readAutonomyUnlocks();
+  global.dispatchEvent(
+    new CustomEvent("bluefox:autonomy-mode", {
+      detail: {
+        mode,
+        source,
+        available: {
+          off: true,
+          semi: unlocks.semi,
+          full: unlocks.full
+        }
+      }
+    })
+  );
+}
+
+function cancelPlannedAutonomousAction() {
+  const engine = BF.currentEngine;
+  const manager = engine?.missionManager;
+  if (!engine || !manager?.currentAction) return;
+  manager.cancelCurrentAction?.("autonomy-mode-off");
+}
+
+function setAutonomyMode(mode, options = {}) {
+  const normalized = String(mode || "").toLowerCase();
+  const source = options.source || "user";
+
+  if (!AUTONOMY_MODES.includes(normalized)) return false;
+  if (source === "user" && !autonomyAvailability(normalized)) return false;
+
+  const previous = readAutonomyMode();
+  if (previous === normalized) {
+    publishAutonomyState(source);
+    refreshAutonomyUI();
+    return true;
+  }
+
+  global.localStorage.setItem(AUTONOMY_MODE_KEY, normalized);
+
+  if (normalized === "off") {
+    cancelPlannedAutonomousAction();
+  }
+
+  publishAutonomyState(source);
+  refreshAutonomyUI();
   return true;
 }
-function sanitizePriorities(src,preferred){if(!src||typeof src!=="object"||Array.isArray(src))return src;const p={...src};delete p.Construction;delete p.construction;const e=Object.keys(p).map(k=>({k,a:axisFor(k),v:clamp(p[k])})).filter(x=>x.a);e.forEach(x=>p[x.k]=x.v);let o=e.reduce((s,x)=>s+x.v,0)-BUDGET;if(o<=0)return p;for(const x of e.filter(x=>x.a!==preferred).sort((a,b)=>b.v-a.v)){if(o<=0)break;const d=Math.min(x.v,o);x.v-=d;p[x.k]=x.v;o-=d;}if(o>0){const x=e.find(x=>x.a===preferred)||e.sort((a,b)=>b.v-a.v)[0];if(x){const d=Math.min(x.v,o);x.v-=d;p[x.k]=x.v;}}return p;}
-function guard(){const proto=global.Storage?.prototype;if(!proto||proto.setItem.__bacFinal)return;const orig=proto.setItem;const fn=function(k,v){if(k===KEY){try{const s=JSON.parse(String(v));if(s&&typeof s==="object"&&s.priorities)s.priorities=sanitizePriorities(s.priorities,lastAxis);v=JSON.stringify(s);}catch{}}return orig.call(this,k,v)};fn.__bacFinal=true;proto.setItem=fn;}
-function updateTrait(row){const input=row.querySelector('input[type="range"]'),out=row.querySelector("b"),lab=row.querySelector("span");const names=row.dataset.traitLeft&&row.dataset.traitRight?[row.dataset.traitLeft,row.dataset.traitRight]:split(lab?.textContent);if(!input||!out||names.length!==2)return;row.dataset.traitLeft=names[0];row.dataset.traitRight=names[1];const l=clamp(input.value),r=100-l;row.classList.add("trait-bipolar-row");lab.classList.add("trait-pole","trait-pole-left");out.classList.add("trait-balance-value","trait-pole","trait-pole-right");lab.textContent=`${names[0]} ${l} %`;out.textContent=`${names[1]} ${r} %`;input.setAttribute("aria-valuetext",`${names[0]} ${l} %, ${names[1]} ${r} %`);}
-function tooltips(row){
-row.removeAttribute("title");
-row.querySelectorAll("[title]").forEach(e=>e.removeAttribute("title"));
-row.querySelectorAll(".bac-trait-info").forEach(e=>e.remove());
-const left=norm(row.dataset.traitLeft);
-const right=norm(row.dataset.traitRight);
-const text=PAIR_TIP[`${left}|${right}`]||"";
-if(text){
-row.dataset.tooltip=text;
-row.classList.add("bac-trait-tooltip-row");
-row.setAttribute("aria-label",text.replace(/\n/g," "));
-}else{
-delete row.dataset.tooltip;
-row.classList.remove("bac-trait-tooltip-row");
-row.removeAttribute("aria-label");
-}
-}
-function entries(settings){return [...settings.querySelectorAll(".slider-row")].filter(r=>!r.classList.contains("trait-row")).map(row=>{const lab=row.querySelector("span"),input=row.querySelector('input[type="range"]'),out=row.querySelector("b");const raw=row.dataset.priorityLabel||lab?.textContent?.replace(/\s+\d+\s*%.*$/,"").trim()||"";row.dataset.priorityLabel=raw;return{row,input,out,axis:axisFor(raw)}}).filter(x=>x.axis&&x.input);}
-const total=e=>e.reduce((s,x)=>s+clamp(x.input.value),0);
-function indicator(settings,e){let i=settings.querySelector(".bac-priority-budget");if(!i){i=document.createElement("div");i.className="bac-priority-budget";const f=e[0]?.row;f?.parentElement?f.parentElement.insertBefore(i,f):settings.prepend(i);}const t=total(e),a=BUDGET-t;i.classList.toggle("is-valid",a===0);i.classList.toggle("is-invalid",a!==0);i.textContent=a===0?`Priorités : ${t}/${BUDGET} points répartis`:a>0?`Priorités : ${t}/${BUDGET} · ${a} point${a>1?"s":""} disponible${a>1?"s":""}`:`Priorités : ${t}/${BUDGET} · dépassement de ${Math.abs(a)} point${Math.abs(a)>1?"s":""}`;}
-function publish(x){x.input.dispatchEvent(new Event("input",{bubbles:true}));x.input.dispatchEvent(new Event("change",{bubbles:true}));}
-function enforce(settings,axis=null){if(lock)return;const e=entries(settings);if(e.length!==5)return;let over=total(e)-BUDGET;if(over<=0){indicator(settings,e);return;}lock=true;try{const changed=e.find(x=>x.axis===axis);let candidates=e.filter(x=>x!==changed).sort((a,b)=>clamp(b.input.value)-clamp(a.input.value));const mod=new Set();while(over>0){const adj=candidates.filter(x=>clamp(x.input.value)>0);if(!adj.length)break;const share=Math.max(1,Math.ceil(over/adj.length));let red=0;for(const x of adj){if(red>=over)break;const cur=clamp(x.input.value),d=Math.min(cur,share,over-red);if(!d)continue;x.input.value=String(cur-d);if(x.out)x.out.textContent=`${cur-d}%`;mod.add(x);red+=d;}if(!red)break;over-=red;candidates=adj;}if(over>0&&changed){const cur=clamp(changed.input.value);changed.input.value=String(cur-over);if(changed.out)changed.out.textContent=`${cur-over}%`;mod.add(changed);}mod.forEach(publish);indicator(settings,entries(settings));}finally{lock=false;}}
-function connect(settings){const e=entries(settings);if(e.length!==5)return;e.forEach(x=>{if(x.input.dataset.bacPriorityConnected==="final")return;x.input.dataset.bacPriorityConnected="final";const run=()=>{if(lock)return;lastAxis=x.axis;queueMicrotask(()=>enforce(settings,x.axis));requestAnimationFrame(()=>enforce(settings,x.axis));setTimeout(()=>enforce(settings,x.axis),25)};x.input.addEventListener("input",run);x.input.addEventListener("change",run);});indicator(settings,e);requestAnimationFrame(()=>enforce(settings,null));}
-function ensureAutonomyControl(settings){
-  let sectionTitle=[...settings.querySelectorAll("h3,h4,strong")].find(el=>norm(el.textContent)==="priorites");
-  if(!sectionTitle) return;
-  let row=sectionTitle.closest(".settings-section-title,.settings-heading,.section-title")||sectionTitle.parentElement;
-  if(!row) return;
-  row.classList.add("bac-priority-heading-row");
-  let trigger=row.querySelector(".bac-autonomy-trigger");
-  if(!trigger){
-    trigger=document.createElement("button");
-    trigger.type="button";
-    trigger.className="bac-autonomy-trigger";
-    trigger.textContent="Autonomie";
-    trigger.setAttribute("aria-haspopup","dialog");
-    row.appendChild(trigger);
+
+function unlockAutonomyMode(mode) {
+  const normalized = String(mode || "").toLowerCase();
+  if (!["semi", "full"].includes(normalized)) return false;
+
+  const unlocks = readAutonomyUnlocks();
+  if (normalized === "semi") unlocks.semi = true;
+  if (normalized === "full") {
+    unlocks.semi = true;
+    unlocks.full = true;
   }
-  if(!document.querySelector(".bac-autonomy-modal")){
-    const modal=document.createElement("div");
-    modal.className="bac-autonomy-modal";
-    modal.hidden=true;
-    modal.innerHTML=`<div class="bac-autonomy-dialog" role="dialog" aria-modal="true" aria-label="Réglage de l’autonomie de BlueFox">
-      <button type="button" class="bac-autonomy-close" aria-label="Fermer">×</button>
-      <h3>Autonomie de BlueFox</h3>
-      <p>Ce réglage modifie fortement le comportement de BlueFox. Pendant les phases tutoriel, utilise-le seulement pour simuler le niveau d’autonomie attendu.</p>
-      <div class="bac-autonomy-choices" role="group" aria-label="Niveau d’autonomie">
-        <button type="button" class="bac-autonomy-choice" data-mode="off">Off</button>
-        <button type="button" class="bac-autonomy-choice" data-mode="movement-only">Déplacements</button>
-        <button type="button" class="bac-autonomy-choice" data-mode="full">Full</button>
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-    const close=()=>{modal.hidden=true;};
-    modal.querySelector(".bac-autonomy-close").addEventListener("click",close);
-    modal.addEventListener("click",event=>{if(event.target===modal)close();});
-    modal.querySelectorAll(".bac-autonomy-choice").forEach(button=>{
-      button.addEventListener("click",()=>setAutonomyMode(button.dataset.mode));
+  writeAutonomyUnlocks(unlocks);
+  publishAutonomyState("tutorial");
+  refreshAutonomyUI();
+  return true;
+}
+
+function resetAutonomyForNewGame() {
+  global.localStorage.setItem(AUTONOMY_MODE_KEY, "off");
+  writeAutonomyUnlocks({ semi: false, full: false });
+  publishAutonomyState("new-game");
+  refreshAutonomyUI();
+  return true;
+}
+
+function installAutonomyGate() {
+  const engine = BF.currentEngine;
+  if (!engine) return false;
+
+  if (!engine.__bluefoxAutonomyGateInstalled) {
+    const originalUpdateAutonomy =
+      typeof engine.updateAutonomy === "function"
+        ? engine.updateAutonomy.bind(engine)
+        : null;
+    const originalEnsureActivity =
+      typeof engine.ensureActivity === "function"
+        ? engine.ensureActivity.bind(engine)
+        : null;
+
+    if (originalUpdateAutonomy) {
+      engine.updateAutonomy = function(now) {
+        if (readAutonomyMode() !== "full") return false;
+        return originalUpdateAutonomy(now);
+      };
+    }
+
+    if (originalEnsureActivity) {
+      engine.ensureActivity = function(now) {
+        if (readAutonomyMode() !== "full") return false;
+        return originalEnsureActivity(now);
+      };
+    }
+
+    Object.defineProperty(engine, "__bluefoxAutonomyGateInstalled", {
+      value: true,
+      configurable: true
     });
   }
-  const modal=document.querySelector(".bac-autonomy-modal");
-  if(trigger.dataset.connected!=="1"){
-    trigger.dataset.connected="1";
-    trigger.addEventListener("click",()=>{
-      modal.hidden=false;
-      const mode=autonomyMode();
-      modal.querySelectorAll(".bac-autonomy-choice").forEach(button=>{
-        button.classList.toggle("active",button.dataset.mode===mode);
-        button.setAttribute("aria-pressed",button.dataset.mode===mode?"true":"false");
-      });
+
+  const manager = engine.missionManager;
+  if (manager && !manager.__bluefoxAutonomyGateInstalled) {
+    const originalMissionUpdate =
+      typeof manager.update === "function"
+        ? manager.update.bind(manager)
+        : null;
+
+    if (originalMissionUpdate) {
+      manager.update = function(now) {
+        if (readAutonomyMode() === "off") return false;
+        return originalMissionUpdate(now);
+      };
+    }
+
+    Object.defineProperty(manager, "__bluefoxAutonomyGateInstalled", {
+      value: true,
+      configurable: true
     });
   }
+
+  return Boolean(
+    engine.__bluefoxAutonomyGateInstalled &&
+    (!engine.missionManager || engine.missionManager.__bluefoxAutonomyGateInstalled)
+  );
 }
-function enhance(){const s=document.querySelector(".settings-content");if(!s)return false;s.querySelectorAll(".slider-row").forEach(row=>{const raw=row.querySelector("span")?.textContent||"";if(norm(raw.replace(/\s+\d+\s*%.*$/,"")).toLowerCase()==="construction"){row.remove();return;}if(!row.classList.contains("trait-row"))return;updateTrait(row);tooltips(row);const input=row.querySelector('input[type="range"]');if(input&&input.dataset.bluefoxBalanceConnected!=="final"){input.dataset.bluefoxBalanceConnected="final";const run=()=>{updateTrait(row);tooltips(row)};input.addEventListener("input",run);input.addEventListener("change",run);}});connect(s);ensureAutonomyControl(s);return true;}
-let scheduled=false;function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;enhance();});}
-guard();global.BlueFox3D=global.BlueFox3D||{};global.BlueFox3D.getAutonomyMode=autonomyMode;global.BlueFox3D.setAutonomyMode=setAutonomyMode;global.BlueFox3D.autonomyMode=autonomyMode();new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});global.addEventListener("DOMContentLoaded",schedule,{once:true});global.BlueFox3D.refreshSettingsUI=enhance;
+
+function findPriorityHeading(settings, firstPriorityRow) {
+  if (!settings || !firstPriorityRow) return null;
+
+  const candidates = [
+    ...settings.querySelectorAll("h1,h2,h3,h4,h5,h6,.section-title,.settings-section-title,strong")
+  ];
+
+  const explicit = candidates.find((node) => norm(node.textContent) === "priorites");
+  if (explicit) return explicit;
+
+  const parent = firstPriorityRow.parentElement;
+  if (!parent) return null;
+  const children = [...parent.children];
+  const index = children.indexOf(firstPriorityRow);
+
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const node = children[cursor];
+    const text = norm(node.textContent);
+    if (!text) continue;
+    if (text === "priorites" || text.startsWith("priorites ")) return node;
+    if (node.matches?.(".slider-row")) break;
+  }
+  return null;
+}
+
+function createAutonomyHeader(settings) {
+  const priorityItems = entries(settings);
+  const firstPriorityRow = priorityItems[0]?.row;
+  if (!firstPriorityRow) return null;
+
+  let header = settings.querySelector(".bluefox-autonomy-header");
+  if (header) return header;
+
+  const existingHeading = findPriorityHeading(settings, firstPriorityRow);
+  header = document.createElement("div");
+  header.className = "bluefox-autonomy-header";
+
+  const left = document.createElement("div");
+  left.className = "bluefox-autonomy-priorities";
+
+  if (existingHeading && !existingHeading.closest(".bluefox-autonomy-header")) {
+    existingHeading.parentElement.insertBefore(header, existingHeading);
+    left.append(existingHeading);
+  } else {
+    const title = document.createElement("span");
+    title.className = "bluefox-autonomy-fallback-title";
+    title.textContent = "Priorités";
+    left.append(title);
+    firstPriorityRow.parentElement.insertBefore(header, firstPriorityRow);
+  }
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "bluefox-autonomy-trigger";
+  trigger.setAttribute("aria-expanded", autonomyUiOpen ? "true" : "false");
+  trigger.innerHTML =
+    '<span>Autonomie</span><b class="bluefox-autonomy-current" aria-hidden="true"></b>';
+  trigger.addEventListener("click", () => {
+    autonomyUiOpen = !autonomyUiOpen;
+    refreshAutonomyUI();
+  });
+
+  header.append(left, trigger);
+
+  const panel = document.createElement("div");
+  panel.className = "bluefox-autonomy-panel";
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-label", "Niveau d’autonomie de BlueFox");
+
+  AUTONOMY_MODES.forEach((mode) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "bluefox-autonomy-mode";
+    button.dataset.mode = mode;
+    button.textContent = AUTONOMY_LABELS[mode];
+    button.addEventListener("click", () => {
+      setAutonomyMode(mode, { source: "user" });
+    });
+    panel.append(button);
+  });
+
+  header.insertAdjacentElement("afterend", panel);
+  return header;
+}
+
+function refreshAutonomyUI() {
+  installAutonomyGate();
+
+  const settings = document.querySelector(".settings-content");
+  if (!settings) return false;
+
+  const header = createAutonomyHeader(settings);
+  if (!header) return false;
+
+  const mode = readAutonomyMode();
+  const unlocks = readAutonomyUnlocks();
+  const panel = header.nextElementSibling?.classList.contains("bluefox-autonomy-panel")
+    ? header.nextElementSibling
+    : settings.querySelector(".bluefox-autonomy-panel");
+  const trigger = header.querySelector(".bluefox-autonomy-trigger");
+  const current = header.querySelector(".bluefox-autonomy-current");
+
+  trigger?.setAttribute("aria-expanded", autonomyUiOpen ? "true" : "false");
+  if (current) current.textContent = AUTONOMY_LABELS[mode];
+
+  panel?.classList.toggle("is-open", autonomyUiOpen);
+  panel?.querySelectorAll(".bluefox-autonomy-mode").forEach((button) => {
+    const buttonMode = button.dataset.mode;
+    const available =
+      buttonMode === "off" ||
+      (buttonMode === "semi" ? unlocks.semi : unlocks.full);
+    const active = buttonMode === mode;
+
+    button.disabled = !available;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.title = available
+      ? `Passer l’autonomie en ${AUTONOMY_LABELS[buttonMode]}`
+      : "Ce niveau sera déverrouillé par le tutoriel.";
+  });
+
+  return true;
+}
+
+BF.getAutonomyMode = readAutonomyMode;
+BF.setAutonomyMode = setAutonomyMode;
+BF.getAutonomyAvailability = () => ({
+  off: true,
+  ...readAutonomyUnlocks()
+});
+BF.unlockAutonomyMode = unlockAutonomyMode;
+BF.resetAutonomyForNewGame = resetAutonomyForNewGame;
+BF.refreshAutonomyUI = refreshAutonomyUI;
+
+/* -------------------------------------------------------------------------- */
+/* Montage Réglages                                                           */
+/* -------------------------------------------------------------------------- */
+
+function enhance() {
+  const settings = document.querySelector(".settings-content");
+  if (!settings) {
+    installAutonomyGate();
+    return false;
+  }
+
+  settings.querySelectorAll(".slider-row").forEach((row) => {
+    const raw = row.querySelector("span")?.textContent || "";
+    if (norm(raw.replace(/\s+\d+\s*%.*$/, "")).toLowerCase() === "construction") {
+      row.remove();
+      return;
+    }
+
+    if (!row.classList.contains("trait-row")) return;
+
+    updateTrait(row);
+    tooltips(row);
+
+    const input = row.querySelector('input[type="range"]');
+    if (input && input.dataset.bluefoxBalanceConnected !== "final") {
+      input.dataset.bluefoxBalanceConnected = "final";
+      const run = () => {
+        updateTrait(row);
+        tooltips(row);
+      };
+      input.addEventListener("input", run);
+      input.addEventListener("change", run);
+    }
+  });
+
+  connect(settings);
+  installAutonomyGate();
+  refreshAutonomyUI();
+  return true;
+}
+
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  requestAnimationFrame(() => {
+    scheduled = false;
+    enhance();
+  });
+}
+
+function observeSettings() {
+  const settings = document.querySelector(".settings-content");
+  if (settings === observedSettings) return Boolean(settings);
+
+  settingsObserver?.disconnect();
+  settingsObserver = null;
+  observedSettings = settings || null;
+
+  if (!settings) return false;
+
+  settingsObserver = new MutationObserver(schedule);
+  settingsObserver.observe(settings, {
+    childList: true,
+    subtree: true
+  });
+  schedule();
+  return true;
+}
+
+guard();
+
+/*
+ * Filet de sécurité global : il ne déclenche pas enhance() sur chaque mutation.
+ * Il vérifie seulement si le conteneur Réglages est apparu ou a été remplacé.
+ */
+const settingsMountObserver = new MutationObserver(() => {
+  observeSettings();
+});
+settingsMountObserver.observe(document.body || document.documentElement, {
+  childList: true,
+  subtree: true
+});
+
+global.addEventListener("DOMContentLoaded", () => {
+  observeSettings();
+  schedule();
+}, { once: true });
+global.addEventListener("bluefox:autonomy-mode", refreshAutonomyUI);
+
+BF.refreshSettingsUI = enhance;
+
+let gateAttempts = 0;
+autonomyGateTimer = global.setInterval(() => {
+  gateAttempts += 1;
+  const done = installAutonomyGate();
+  if (done || gateAttempts >= 80) {
+    global.clearInterval(autonomyGateTimer);
+    autonomyGateTimer = 0;
+    refreshAutonomyUI();
+  }
+}, 250);
+
+observeSettings();
+schedule();
+
 })(window);

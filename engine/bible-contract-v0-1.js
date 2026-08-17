@@ -1,4 +1,4 @@
-(function (global) {
+﻿(function (global) {
   "use strict";
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
@@ -28,47 +28,90 @@
     "type", "count", "threshold", "mapId", "zoneId", "uniqueOnly"
   ]);
 
-  const INTERACTION_FILTERS = Object.freeze([
-    "objectId", "kind", "kindsAny", "family", "subject", "knowledgeFamily",
-    "tagsAny", "tagsAll", "source"
-  ]);
-
   const TRIGGER_FILTERS = Object.freeze({
     manual: Object.freeze([]),
-    "interaction.any": Object.freeze([...INTERACTION_FILTERS, "studyOnly"]),
-    "interaction.discovery": INTERACTION_FILTERS,
-    "interaction.collect": INTERACTION_FILTERS,
-    "interaction.extract": INTERACTION_FILTERS,
-    "interaction.observe": INTERACTION_FILTERS,
-    "interaction.inspect": INTERACTION_FILTERS,
-    "interaction.analyze": INTERACTION_FILTERS,
-    "movement.portal_crossed": Object.freeze(["direction", "fromMapId", "toMapId"]),
-    "exploration.zone_discovered": Object.freeze(["biome"]),
-    "exploration.map_discovered": Object.freeze(["biome", "direction"]),
-    "exploration.sector_discovered": Object.freeze(["biome"]),
-    "exploration.surface_percent": Object.freeze(["biome"]),
-    "progression.mission_completed": Object.freeze(["missionId"]),
-    "progression.milestone": Object.freeze(["milestoneId"]),
-    "progression.skill_unlocked": Object.freeze(["skillId"])
+
+    "interaction.any": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll", "studyOnly"
+    ]),
+    "interaction.discovery": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+    "interaction.collect": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+    "interaction.extract": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+    "interaction.observe": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+    "interaction.inspect": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+    "interaction.analyze": Object.freeze([
+      "objectId", "kind", "family", "subject", "tagsAny", "tagsAll"
+    ]),
+
+    "movement.portal_crossed": Object.freeze([
+      "direction", "fromMapId", "toMapId"
+    ]),
+
+    "exploration.zone_discovered": Object.freeze([
+      "biome"
+    ]),
+    "exploration.map_discovered": Object.freeze([
+      "biome", "direction"
+    ]),
+    "exploration.sector_discovered": Object.freeze([
+      "biome"
+    ]),
+    "exploration.surface_percent": Object.freeze([
+      "biome"
+    ]),
+
+    "progression.mission_completed": Object.freeze([
+      "missionId"
+    ]),
+    "progression.milestone": Object.freeze([
+      "milestoneId"
+    ]),
+    "progression.skill_unlocked": Object.freeze([
+      "skillId"
+    ])
   });
 
   const EFFECT_TYPES = Object.freeze([
     "inventory.add",
     "inventory.consume",
-    "site.establish",
-    "autonomy.set"
+    "site.establish"
   ]);
 
-  const COMPLETION_GATE_TYPES = Object.freeze(["proximity.shelter"]);
-  const SHELTER_KINDS = Object.freeze(["camp", "refuge", "base"]);
+  const COMPLETION_GATE_TYPES = Object.freeze([
+    "proximity.shelter"
+  ]);
+
+  const SHELTER_KINDS = Object.freeze([
+    "camp",
+    "refuge",
+    "base"
+  ]);
+
   const PLACEMENT_MODES = Object.freeze([
-    "specific", "random-valid", "near-bluefox", "near-camp", "map-center", "zone-random"
+    "specific",
+    "random-valid",
+    "near-bluefox",
+    "near-camp",
+    "map-center",
+    "zone-random"
   ]);
 
   const isObject = (value) =>
     Boolean(value && typeof value === "object" && !Array.isArray(value));
+
   const isNonEmptyString = (value) =>
     typeof value === "string" && value.trim().length > 0;
+
   const asArray = (value) =>
     Array.isArray(value) ? value : value == null ? [] : [value];
 
@@ -144,13 +187,16 @@
 
     Object.keys(trigger).forEach((key) => {
       if (!allowed.has(key)) {
-        add(errors, missionId, `trigger.${key}`,
-          `filtre hors contrat pour ${trigger.type}.`);
+        add(
+          errors,
+          missionId,
+          `trigger.${key}`,
+          `filtre hors contrat pour ${trigger.type}.`
+        );
       }
     });
 
-    if (trigger.count != null &&
-        (!Number.isFinite(Number(trigger.count)) || Number(trigger.count) < 1)) {
+    if (trigger.count != null && (!Number.isFinite(Number(trigger.count)) || Number(trigger.count) < 1)) {
       add(errors, missionId, "trigger.count", "doit être un entier >= 1.");
     }
 
@@ -159,23 +205,33 @@
     }
 
     if (
-      ["movement.portal_crossed", "exploration.map_discovered"].includes(trigger.type) &&
+      ["movement.portal_crossed", "exploration.map_discovered"].includes(
+        trigger.type
+      ) &&
       trigger.direction != null &&
       !["north", "south", "east", "west"].includes(trigger.direction)
     ) {
-      add(errors, missionId, "trigger.direction",
-        "doit valoir north, south, east ou west.");
+      add(
+        errors,
+        missionId,
+        "trigger.direction",
+        "doit valoir north, south, east ou west."
+      );
     }
 
     if (
       trigger.type === "exploration.surface_percent" &&
       (Number(trigger.threshold) <= 0 || Number(trigger.threshold) > 100)
     ) {
-      add(errors, missionId, "trigger.threshold",
-        "pour surface_percent, doit être > 0 et <= 100.");
+      add(
+        errors,
+        missionId,
+        "trigger.threshold",
+        "pour surface_percent, doit être > 0 et <= 100."
+      );
     }
 
-    ["tagsAny", "tagsAll", "kindsAny"].forEach((key) => {
+    ["tagsAny", "tagsAll"].forEach((key) => {
       if (trigger[key] != null && !Array.isArray(trigger[key])) {
         add(errors, missionId, `trigger.${key}`, "doit être un tableau.");
       }
@@ -194,60 +250,99 @@
       }
       narrative[moment].forEach((line, index) => {
         if (!isNonEmptyString(line)) {
-          add(errors, missionId, `narrative.${moment}[${index}]`,
-              "doit être une chaîne non vide.");
+          add(
+            errors,
+            missionId,
+            `narrative.${moment}[${index}]`,
+            "doit être une chaîne non vide."
+          );
         }
       });
     });
 
     const progress = asArray(narrative.progress);
     if (progress.length > MAX_PROGRESS_NARRATIVES) {
-      add(errors, missionId, "narrative.progress",
-          `maximum ${MAX_PROGRESS_NARRATIVES} jalons de progression.`);
+      add(
+        errors,
+        missionId,
+        "narrative.progress",
+        `maximum ${MAX_PROGRESS_NARRATIVES} jalons de progression.`
+      );
     }
 
     progress.forEach((entry, index) => {
       if (isNonEmptyString(entry)) {
         if (compatibility === "legacy-v0") {
-          add(warnings, missionId, `narrative.progress[${index}]`,
-              "ancienne forme texte ; V0.1 attend {text, at} ou {text, atCount}.");
+          add(
+            warnings,
+            missionId,
+            `narrative.progress[${index}]`,
+            "ancienne forme texte ; V0.1 attend {text, at} ou {text, atCount}."
+          );
           return;
         }
-        add(errors, missionId, `narrative.progress[${index}]`,
-            "V0.1 exige un jalon structuré.");
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}]`,
+          "V0.1 exige un jalon structuré."
+        );
         return;
       }
 
       if (!isObject(entry) || !isNonEmptyString(entry.text)) {
-        add(errors, missionId, `narrative.progress[${index}]`,
-            "doit contenir un champ text non vide.");
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}]`,
+          "doit contenir un champ text non vide."
+        );
         return;
       }
 
       const hasAt = entry.at != null;
       const hasAtCount = entry.atCount != null;
       if (hasAt === hasAtCount) {
-        add(errors, missionId, `narrative.progress[${index}]`,
-            "doit définir exactement un seuil : at OU atCount.");
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}]`,
+          "doit définir exactement un seuil : at OU atCount."
+        );
       }
       if (hasAt && (Number(entry.at) <= 0 || Number(entry.at) >= 1)) {
-        add(errors, missionId, `narrative.progress[${index}].at`,
-            "doit être strictement compris entre 0 et 1.");
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}].at`,
+          "doit être strictement compris entre 0 et 1."
+        );
       }
-      if (hasAtCount &&
-          (!Number.isFinite(Number(entry.atCount)) || Number(entry.atCount) < 1)) {
-        add(errors, missionId, `narrative.progress[${index}].atCount`,
-            "doit être >= 1.");
+      if (hasAtCount && (!Number.isFinite(Number(entry.atCount)) || Number(entry.atCount) < 1)) {
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}].atCount`,
+          "doit être >= 1."
+        );
       }
       if (entry.slot != null && !isNonEmptyString(entry.slot)) {
-        add(errors, missionId, `narrative.progress[${index}].slot`,
-            "doit être une chaîne non vide.");
+        add(
+          errors,
+          missionId,
+          `narrative.progress[${index}].slot`,
+          "doit être une chaîne non vide."
+        );
       }
     });
 
     if (narrative.hesitation?.length) {
-      add(warnings, missionId, "narrative.hesitation",
-          "conservé comme extension future ; non contractualisé en V0.1.");
+      add(
+        warnings,
+        missionId,
+        "narrative.hesitation",
+        "conservé comme extension future ; non contractualisé en V0.1."
+      );
     }
   };
 
@@ -262,8 +357,12 @@
     }
 
     if (!COMPLETION_GATE_TYPES.includes(gate.type)) {
-      add(errors, missionId, "completionGate.type",
-          `type non supporté. Autorisé V0.1 : ${COMPLETION_GATE_TYPES.join(", ")}.`);
+      add(
+        errors,
+        missionId,
+        "completionGate.type",
+        `type non supporté. Autorisé V0.1 : ${COMPLETION_GATE_TYPES.join(", ")}.`
+      );
       return;
     }
 
@@ -273,19 +372,31 @@
         : asArray(gate.shelterKinds);
 
       if (!kinds.length || kinds.some((kind) => !SHELTER_KINDS.includes(kind))) {
-        add(errors, missionId, "completionGate.shelterKinds",
-            `valeurs autorisées : ${SHELTER_KINDS.join(", ")}.`);
+        add(
+          errors,
+          missionId,
+          "completionGate.shelterKinds",
+          `valeurs autorisées : ${SHELTER_KINDS.join(", ")}.`
+        );
       }
 
-      if (gate.radius != null &&
-          (!Number.isFinite(Number(gate.radius)) || Number(gate.radius) <= 0)) {
+      if (
+        gate.radius != null &&
+        (!Number.isFinite(Number(gate.radius)) || Number(gate.radius) <= 0)
+      ) {
         add(errors, missionId, "completionGate.radius", "doit être > 0.");
       }
 
-      if (gate.scope != null &&
-          !["current-map", "any-established"].includes(gate.scope)) {
-        add(errors, missionId, "completionGate.scope",
-            "doit valoir current-map ou any-established.");
+      if (
+        gate.scope != null &&
+        !["current-map", "any-established"].includes(gate.scope)
+      ) {
+        add(
+          errors,
+          missionId,
+          "completionGate.scope",
+          "doit valoir current-map ou any-established."
+        );
       }
     }
   };
@@ -303,8 +414,12 @@
     effects.forEach((effect, index) => {
       const path = `effects[${index}]`;
       if (!isObject(effect) || !EFFECT_TYPES.includes(effect.type)) {
-        add(errors, missionId, `${path}.type`,
-            `type non supporté. Autorisés : ${EFFECT_TYPES.join(", ")}.`);
+        add(
+          errors,
+          missionId,
+          `${path}.type`,
+          `type non supporté. Autorisés : ${EFFECT_TYPES.join(", ")}.`
+        );
         return;
       }
 
@@ -312,13 +427,21 @@
         if (!isNonEmptyString(effect.objectId)) {
           add(errors, missionId, `${path}.objectId`, "objet requis.");
         }
-        if (effect.destination != null &&
-            !["bluefox", "base"].includes(effect.destination)) {
-          add(errors, missionId, `${path}.destination`,
-              "doit valoir bluefox ou base.");
+        if (
+          effect.destination != null &&
+          !["bluefox", "base"].includes(effect.destination)
+        ) {
+          add(
+            errors,
+            missionId,
+            `${path}.destination`,
+            "doit valoir bluefox ou base."
+          );
         }
-        if (effect.quantity != null &&
-            (!Number.isFinite(Number(effect.quantity)) || Number(effect.quantity) < 1)) {
+        if (
+          effect.quantity != null &&
+          (!Number.isFinite(Number(effect.quantity)) || Number(effect.quantity) < 1)
+        ) {
           add(errors, missionId, `${path}.quantity`, "doit être >= 1.");
         }
       }
@@ -332,17 +455,6 @@
         }
       }
 
-      if (effect.type === "autonomy.set") {
-        if (!["off", "movement-only", "full"].includes(effect.mode)) {
-          add(errors, missionId, `${path}.mode`,
-              "doit valoir off, movement-only ou full.");
-        }
-        if (effect.phase != null && !["activated", "completed"].includes(effect.phase)) {
-          add(errors, missionId, `${path}.phase`,
-              "doit valoir activated ou completed.");
-        }
-      }
-
       if (effect.type === "site.establish") {
         if (!SHELTER_KINDS.includes(effect.kind)) {
           add(errors, missionId, `${path}.kind`, "camp, refuge ou base requis.");
@@ -352,23 +464,40 @@
         }
         const placement = effect.placement || {};
         if (!PLACEMENT_MODES.includes(placement.mode)) {
-          add(errors, missionId, `${path}.placement.mode`,
-              `mode requis parmi : ${PLACEMENT_MODES.join(", ")}.`);
+          add(
+            errors,
+            missionId,
+            `${path}.placement.mode`,
+            `mode requis parmi : ${PLACEMENT_MODES.join(", ")}.`
+          );
         }
-        if (placement.mode === "specific" &&
-            (!Number.isFinite(Number(placement.x)) || !Number.isFinite(Number(placement.z)))) {
-          add(errors, missionId, `${path}.placement`,
-              "specific exige x et z numériques.");
+        if (
+          placement.mode === "specific" &&
+          (!Number.isFinite(Number(placement.x)) || !Number.isFinite(Number(placement.z)))
+        ) {
+          add(
+            errors,
+            missionId,
+            `${path}.placement`,
+            "specific exige x et z numériques."
+          );
         }
       }
     });
   };
 
-  const validatePatternUse = (mission, patterns, errors, warnings, compatibility) => {
+  const validatePatternUse = (
+    mission,
+    patterns,
+    errors,
+    warnings,
+    compatibility
+  ) => {
     const missionId = mission?.id;
     const pattern = patterns?.[mission?.pattern];
+
     if (!pattern) {
-      add(errors, missionId, "pattern", "patron inconnu.");
+      add(errors, missionId, "pattern", `patron inconnu : ${mission?.pattern}.`);
       return;
     }
 
@@ -380,8 +509,12 @@
       }
       (step.requires || []).forEach((required) => {
         if (!patternSlots.has(required)) {
-          add(errors, missionId, `pattern.steps.${step.slot}.requires`,
-              `slot requis inconnu : ${required}.`);
+          add(
+            errors,
+            missionId,
+            `pattern.steps.${step.slot}.requires`,
+            `slot requis inconnu : ${required}.`
+          );
         }
       });
 
@@ -397,44 +530,88 @@
     });
   };
 
-  const validateMission = (mission, patterns, options = {}) => {
+  const validateMission = (
+    mission,
+    patterns,
+    options = {}
+  ) => {
     const compatibility = options.compatibility || "strict";
     const errors = [];
     const warnings = [];
     const missionId = mission?.id;
 
     if (!isObject(mission)) {
-      return { ok: false, errors: ["<mission> : fiche invalide."], warnings: [] };
+      return {
+        ok: false,
+        errors: ["<mission> : fiche invalide."],
+        warnings: []
+      };
     }
 
-    if (!isNonEmptyString(missionId)) add(errors, missionId, "id", "identifiant requis.");
-    if (!isNonEmptyString(mission.title)) add(errors, missionId, "title", "titre requis.");
-    if (!isNonEmptyString(mission.pattern)) add(errors, missionId, "pattern", "patron requis.");
-    if (!isObject(mission.slots)) add(errors, missionId, "slots", "objet requis.");
-
-    if (mission.targetBinding != null &&
-        !["instance", "definition"].includes(mission.targetBinding)) {
-      add(errors, missionId, "targetBinding", "doit valoir instance ou definition.");
+    if (!isNonEmptyString(missionId)) {
+      add(errors, missionId, "id", "identifiant requis.");
+    }
+    if (!isNonEmptyString(mission.title)) {
+      add(errors, missionId, "title", "titre requis.");
+    }
+    if (!isNonEmptyString(mission.pattern)) {
+      add(errors, missionId, "pattern", "patron requis.");
+    }
+    if (!isObject(mission.slots)) {
+      add(errors, missionId, "slots", "objet requis.");
+    }
+    if (
+      mission.targetBinding != null &&
+      !["instance", "definition"].includes(mission.targetBinding)
+    ) {
+      add(
+        errors,
+        missionId,
+        "targetBinding",
+        "doit valoir instance ou definition."
+      );
+    }
+    if (
+      mission.prerequisites != null &&
+      (!Array.isArray(mission.prerequisites) ||
+        mission.prerequisites.some((id) => !isNonEmptyString(id)))
+    ) {
+      add(
+        errors,
+        missionId,
+        "prerequisites",
+        "doit être un tableau d’identifiants de missions non vides."
+      );
     }
 
-    if (mission.prerequisites != null &&
-        (!Array.isArray(mission.prerequisites) ||
-         mission.prerequisites.some((id) => !isNonEmptyString(id)))) {
-      add(errors, missionId, "prerequisites",
-          "doit être un tableau d’identifiants de missions non vides.");
-    }
-
-    validatePatternUse(mission, patterns, errors, warnings, compatibility);
+    validatePatternUse(
+      mission,
+      patterns,
+      errors,
+      warnings,
+      compatibility
+    );
     validateTrigger(mission, errors, warnings, compatibility);
     validateNarrative(mission, errors, warnings, compatibility);
     validateCompletionGate(mission, errors);
     validateEffects(mission, errors);
 
-    return { missionId: missionId || null, ok: errors.length === 0, errors, warnings };
+    return {
+      missionId: missionId || null,
+      ok: errors.length === 0,
+      errors,
+      warnings
+    };
   };
 
-  const validateCatalog = (catalog, patterns, options = {}) => {
-    const list = Array.isArray(catalog) ? catalog : Object.values(catalog || {});
+  const validateCatalog = (
+    catalog,
+    patterns,
+    options = {}
+  ) => {
+    const list = Array.isArray(catalog)
+      ? catalog
+      : Object.values(catalog || {});
     const errors = [];
     const warnings = [];
     const ids = new Set();
@@ -488,7 +665,9 @@
 
   BF.BibleContractV01 = Object.freeze({
     version: VERSION,
-    limits: Object.freeze({ maxProgressNarratives: MAX_PROGRESS_NARRATIVES }),
+    limits: Object.freeze({
+      maxProgressNarratives: MAX_PROGRESS_NARRATIVES
+    }),
     triggerTypes: TRIGGER_TYPES,
     triggerFilters: TRIGGER_FILTERS,
     effectTypes: EFFECT_TYPES,

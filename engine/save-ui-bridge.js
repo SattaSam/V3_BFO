@@ -8,6 +8,7 @@
   const FILE_BOOTSTRAP_KEY = "bluefox_file_save_bootstrap_v1";
   const FILE_DIAGNOSTICS_KEY = "bluefox_file_save_diagnostics_v1";
   const AUTOSAVE_INTERVAL_MS = 90000;
+  const INTRO_VIDEO_PATH = "assets/video/bluefox-intro.mp4";
 
   const SLOT_KEYS = Object.freeze({
     auto: "bluefox_autosave_slot_v1",
@@ -48,6 +49,7 @@
     lastAttemptAt: 0,
     lastSuccessAt: 0,
     lastFailureAt: 0,
+    lastSkippedAt: 0,
     lastSlot: null,
     lastBytes: 0,
     lastError: "",
@@ -62,9 +64,9 @@
   let startupReady = false;
   let startupPromise = null;
   let newGameResetInProgress = false;
-  const INTRO_VIDEO_SRC = "./assets/video/bluefox-intro.mp4";
-  const INTRO_OVERLAY_ID = "bluefox-new-game-intro";
-  let introRunning = false;
+  let introInProgress = false;
+  let introOverlay = null;
+  let lastAutoStateSignature = null;
 
   const keys = () =>
     Array.from({ length: global.localStorage.length }, (_, index) =>
@@ -85,7 +87,6 @@
       () => BF.currentEngine?.saveDiscovery?.(),
       () => BF.currentEngine?.saveZoneDiscovery?.(),
       () => BF.currentEngine?.missionManager?.memory?.save?.(),
-      () => BF.progression?.save?.(),
       () => BF.multiProgression?.save?.(),
       () => BF.mapExploration?.save?.(),
       () => BF.survival?.save?.()
@@ -101,8 +102,11 @@
     Object.fromEntries(
       keys()
         .filter((key) => key.startsWith("bluefox_") && !RESERVED_KEYS.has(key))
+        .sort()
         .map((key) => [key, global.localStorage.getItem(key)])
     );
+
+  const stateSignature = (state) => JSON.stringify(state || {});
 
   const validSnapshot = (snapshot) =>
     Boolean(
@@ -117,6 +121,7 @@
 
   const buildSnapshot = (slot) => {
     const runtimeErrors = persistRuntime();
+    const state = captureState();
     return {
       snapshot: {
         format: "bluefox-save-file",
@@ -127,8 +132,9 @@
         slot: String(slot),
         savedAt: Date.now(),
         originAtSave: global.location.origin,
-        state: captureState()
+        state
       },
+      stateSignature: stateSignature(state),
       runtimeErrors
     };
   };
@@ -198,9 +204,6 @@
       throw new Error("Instantané de sauvegarde invalide.");
     }
 
-    // Une sauvegarde est un état complet du jeu, pas un calque sur la partie courante.
-    // Sans cette purge, un inventaire/progression plus récent pouvait survivre au
-    // chargement d'une sauvegarde plus ancienne.
     clearActive();
 
     Object.entries(snapshot.state).forEach(([key, value]) => {
@@ -217,13 +220,30 @@
     global.localStorage.setItem(RESTORED_AT_KEY, String(snapshot.savedAt));
   };
 
-  const writeSnapshot = async (slot = "auto") => {
+  const writeSnapshot = async (slot = "auto", options = {}) => {
     diagnostics.lastAttemptAt = Date.now();
     diagnostics.lastSlot = String(slot);
     diagnostics.lastError = "";
     diagnostics.verified = false;
 
-    const { snapshot, runtimeErrors } = buildSnapshot(slot);
+    const force = options.force === true || String(slot) !== "auto";
+    const {
+      snapshot,
+      stateSignature: currentSignature,
+      runtimeErrors
+    } = buildSnapshot(slot);
+
+    if (!force && lastAutoStateSignature === currentSignature) {
+      diagnostics.lastSkippedAt = Date.now();
+      diagnostics.verified = true;
+      if (runtimeErrors.length) {
+        diagnostics.lastError =
+          `${runtimeErrors.length} sous-système(s) n’ont pas pu être forcés.`;
+      }
+      global.localStorage.setItem(FILE_DIAGNOSTICS_KEY, JSON.stringify(diagnostics));
+      return snapshot;
+    }
+
     const serialized = JSON.stringify(snapshot);
     diagnostics.lastBytes = serialized.length * 2;
 
@@ -238,6 +258,9 @@
       }
       diagnostics.lastSuccessAt = snapshot.savedAt;
       diagnostics.verified = true;
+      if (String(slot) === "auto") {
+        lastAutoStateSignature = currentSignature;
+      }
       if (runtimeErrors.length) {
         diagnostics.lastError =
           `${runtimeErrors.length} sous-système(s) n’ont pas pu être forcés.`;
@@ -275,6 +298,9 @@
     await createRecoverySnapshot();
     applySnapshot(snapshot, slot);
     writeLocalCache(slot, snapshot);
+    if (String(slot) === "auto") {
+      lastAutoStateSignature = stateSignature(snapshot.state);
+    }
     BF.newGameResetInProgress = false;
     global.location.reload();
     return true;
@@ -304,6 +330,14 @@
         global.location.reload();
         return false;
       }
+
+      const baseline =
+        (slot === "auto" ? fileSnapshot || localSnapshot : null) ||
+        readLocalSnapshot("auto");
+      lastAutoStateSignature = baseline?.state
+        ? stateSignature(baseline.state)
+        : null;
+
       startupReady = true;
       return true;
     })();
@@ -319,8 +353,10 @@
     return Boolean(await writeSnapshot("auto"));
   };
 
-  BF.saveGame = async (slot = 1) => Boolean(await writeSnapshot(slot));
-  BF.createManualSave = async (slot = 1) => Boolean(await writeSnapshot(slot));
+  BF.saveGame = async (slot = 1) =>
+    Boolean(await writeSnapshot(slot, { force: true }));
+  BF.createManualSave = async (slot = 1) =>
+    Boolean(await writeSnapshot(slot, { force: true }));
   BF.loadGame = async (slot = "auto") => restoreSnapshot(slot);
   BF.getSaveSlots = async () => ({
     auto: (await readFileSnapshot("auto")) || readLocalSnapshot("auto"),
@@ -445,54 +481,12 @@
     return errors;
   };
 
-  const playNewGameIntro = () =>
-    new Promise((resolve) => {
-      if (introRunning) return;
-      introRunning = true;
-
-      global.document.getElementById(INTRO_OVERLAY_ID)?.remove();
-
-      const overlay = global.document.createElement("div");
-      overlay.id = INTRO_OVERLAY_ID;
-      overlay.className = "new-game-intro";
-
-      const video = global.document.createElement("video");
-      video.className = "new-game-intro-video";
-      video.src = INTRO_VIDEO_SRC;
-      video.preload = "auto";
-      video.playsInline = true;
-      video.controls = false;
-
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        try { video.pause(); } catch {}
-        overlay.remove();
-        introRunning = false;
-        resolve();
-      };
-
-      const skip = button("Passer", "new-game-intro-skip", finish);
-      video.addEventListener("ended", finish, { once: true });
-      video.addEventListener("error", finish, { once: true });
-
-      overlay.append(video, skip);
-      global.document.body.append(overlay);
-
-      const playback = video.play();
-      if (playback?.catch) {
-        playback.catch(() => {
-          skip.textContent = "Continuer";
-        });
-      }
-    });
-
   const startNewGame = async () => {
     await createRecoverySnapshot();
     newGameResetInProgress = true;
     BF.newGameResetInProgress = true;
     startupReady = false;
+    lastAutoStateSignature = null;
     try {
       await fileRequest("/api/saves/auto", { method: "DELETE" });
     } catch {}
@@ -513,11 +507,71 @@
     global.location.reload();
   };
 
-  const startNewGameWithIntro = async () => {
-    if (introRunning) return false;
-    await playNewGameIntro();
-    await startNewGame();
-    return true;
+  const removeIntroOverlay = () => {
+    introOverlay?.remove();
+    introOverlay = null;
+    global.document.documentElement.classList.remove("bluefox-intro-open");
+  };
+
+  const pauseExistingMedia = (introVideo) => {
+    global.document.querySelectorAll("audio, video").forEach((media) => {
+      if (media === introVideo) return;
+      try { media.pause(); } catch {}
+    });
+  };
+
+  const playIntroThenStartNewGame = async () => {
+    if (introInProgress) return;
+    introInProgress = true;
+
+    const overlay = global.document.createElement("div");
+    overlay.className = "bluefox-intro-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Introduction de BlueFox Odyssey");
+
+    const video = global.document.createElement("video");
+    video.className = "bluefox-intro-video";
+    video.src = INTRO_VIDEO_PATH;
+    video.preload = "auto";
+    video.autoplay = true;
+    video.playsInline = true;
+    video.controls = false;
+
+    let finished = false;
+    const finish = async () => {
+      if (finished) return;
+      finished = true;
+      try { video.pause(); } catch {}
+      removeIntroOverlay();
+      try {
+        await startNewGame();
+      } finally {
+        introInProgress = false;
+      }
+    };
+
+    const skip = button("Passer", "bluefox-intro-skip", finish);
+
+    video.addEventListener("ended", finish, { once: true });
+    video.addEventListener("error", finish, { once: true });
+    video.addEventListener("abort", finish, { once: true });
+
+    overlay.append(video, skip);
+    global.document.body.append(overlay);
+    introOverlay = overlay;
+    global.document.documentElement.classList.add("bluefox-intro-open");
+
+    pauseExistingMedia(video);
+
+    try {
+      const playResult = video.play();
+      if (playResult && typeof playResult.catch === "function") {
+        await playResult.catch(finish);
+      }
+    } catch {
+      await finish();
+    }
   };
 
   const showNewGameConfirmation = (root) => {
@@ -530,7 +584,7 @@
     popover.append(
       warning,
       button("Annuler", "new-game-cancel-button", () => closePopover(root)),
-      button("Confirmer", "new-game-confirm-button", startNewGameWithIntro)
+      button("Confirmer", "new-game-confirm-button", playIntroThenStartNewGame)
     );
     root.append(popover);
   };
@@ -568,6 +622,24 @@
     );
   };
 
+  const refreshFirstLaunchState = async (root) => {
+    if (!root?.isConnected) return false;
+    let slots = null;
+    try {
+      slots = await BF.getSaveSlots();
+    } catch {}
+
+    const hasExistingSave = Boolean(slots?.auto || slots?.[1] || slots?.[2]);
+    const hasStartedGame = Boolean(
+      global.localStorage.getItem("bluefox_new_game_start_v1")
+    );
+    const firstLaunch = !hasStartedGame && !hasExistingSave;
+
+    root.classList.toggle("first-launch", firstLaunch);
+    root.dataset.firstLaunch = firstLaunch ? "true" : "false";
+    return firstLaunch;
+  };
+
   const ensureSaveControls = () => {
     const target = global.document.querySelector(SAVE_UI_CONFIG.targetSelector);
     if (!target) return false;
@@ -579,6 +651,7 @@
       root = buildSaveControls();
       target.append(root);
     }
+    refreshFirstLaunchState(root);
     return true;
   };
 
@@ -593,7 +666,18 @@
     (global.requestAnimationFrame || global.setTimeout)(run);
   };
 
-  const saveUiObserver = new MutationObserver(scheduleSaveControls);
+  const saveUiObserver = new MutationObserver((mutations) => {
+    const relevant = mutations.some((mutation) =>
+      [...mutation.addedNodes, ...mutation.removedNodes].some((node) =>
+        node?.nodeType === 1 &&
+        (
+          node.matches?.(SAVE_UI_CONFIG.targetSelector) ||
+          node.querySelector?.(SAVE_UI_CONFIG.targetSelector)
+        )
+      )
+    );
+    if (relevant) scheduleSaveControls();
+  });
   saveUiObserver.observe(global.document.documentElement, {
     childList: true,
     subtree: true
@@ -610,6 +694,7 @@
   });
 
   BF.refreshSaveUI = ensureSaveControls;
+  BF.playNewGameIntro = playIntroThenStartNewGame;
   BF.getSaveUiDiagnostics = () =>
     Object.freeze({
       version: SAVE_UI_CONFIG.version,
@@ -625,30 +710,8 @@
       origin: global.location.origin
     });
 
-  bootstrapFromFile().then(async (ready) => {
+  bootstrapFromFile().then((ready) => {
     if (!ready) return;
-
-    const slots = await BF.getSaveSlots();
-    const hasExistingGame = Boolean(
-      slots.auto ||
-      slots[1] ||
-      slots[2] ||
-      global.localStorage.getItem("bluefox_new_game_start_v1")
-    );
-
-    if (!hasExistingGame) {
-      const gate = global.document.createElement("div");
-      gate.id = INTRO_OVERLAY_ID;
-      gate.className = "new-game-intro new-game-first-launch";
-      gate.append(
-        button("Nouvelle partie", "new-game-first-launch-button", async () => {
-          gate.remove();
-          await startNewGameWithIntro();
-        })
-      );
-      global.document.body.append(gate);
-    }
-
     global.setTimeout(flush, 15000);
     global.setInterval(flush, AUTOSAVE_INTERVAL_MS);
     global.addEventListener("pagehide", flush);

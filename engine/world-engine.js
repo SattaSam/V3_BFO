@@ -954,30 +954,14 @@
     createExplorationHud() {
       this.ensureCompassNeedle(true);
 
-      this.cameraButton = document.createElement("button");
-      this.cameraButton.type = "button";
-      this.cameraButton.className = "bluefox-camera-button";
-      this.cameraButton.setAttribute("aria-label", "Recentrer la caméra sur BlueFox");
-      this.cameraButton.title = "Clic : recentrer · double-clic : suivi libre";
-      this.cameraButton.innerHTML = "<span>◎</span>";
-      document.body.appendChild(this.cameraButton);
-
-      this.speechButton = document.createElement("button");
-      this.speechButton.type = "button";
-      this.speechButton.className = "bluefox-speech-button";
-      this.speechButton.setAttribute("aria-label", "Afficher ou masquer les paroles de BlueFox");
-      this.speechButton.title = "Afficher ou masquer les paroles de BlueFox";
-      this.speechButton.innerHTML = "<span>💬</span>";
-      document.body.appendChild(this.speechButton);
-
-      this.onCameraClick = () => {
+      this.onCameraClick = this.onCameraClick || (() => {
         window.clearTimeout(this.cameraClickTimer);
         this.cameraClickTimer = window.setTimeout(() => {
           this.cameraController.resetBehindCharacter(false);
           this.callbacks.onStatus("Caméra recentrée derrière BlueFox.");
         }, 240);
-      };
-      this.onCameraDoubleClick = (event) => {
+      });
+      this.onCameraDoubleClick = this.onCameraDoubleClick || ((event) => {
         event.preventDefault();
         window.clearTimeout(this.cameraClickTimer);
         const mode = this.cameraController.toggleFreeFollow();
@@ -987,22 +971,84 @@
             ? "Caméra libre : elle conserve son point de vue tout en suivant BlueFox."
             : "Caméra ancrée : recentrage automatique après 3,5 secondes."
         );
-      };
-      this.onCameraMode = (event) => this.updateCameraButton(event.detail.mode);
-      this.cameraButton.addEventListener("click", this.onCameraClick);
-      this.cameraButton.addEventListener("dblclick", this.onCameraDoubleClick);
-      this.onSpeechToggle = () => {
+      });
+      this.onCameraMode = this.onCameraMode || ((event) =>
+        this.updateCameraButton(event.detail.mode)
+      );
+      this.onSpeechToggle = this.onSpeechToggle || (() => {
         this.speechVisible = !this.speechVisible;
         localStorage.setItem(
           "bluefox_speech_visible_v1",
           String(this.speechVisible)
         );
         this.updateSpeechButton();
-      };
-      this.speechButton.addEventListener("click", this.onSpeechToggle);
-      global.addEventListener("bluefox:camera-mode", this.onCameraMode);
+      });
+
+      this.ensureHudControl("camera");
+      this.ensureHudControl("speech");
+
+      if (!this.cameraModeListenerBound) {
+        global.addEventListener("bluefox:camera-mode", this.onCameraMode);
+        this.cameraModeListenerBound = true;
+      }
       this.updateCameraButton(this.cameraController.mode);
       this.updateSpeechButton();
+    }
+
+    ensureHudControl(control) {
+      const definitions = {
+        camera: {
+          property: "cameraButton",
+          className: "bluefox-camera-button",
+          ariaLabel: "Recentrer la caméra sur BlueFox",
+          title: "Clic : recentrer · double-clic : suivi libre",
+          content: "<span>◎</span>",
+          listeners: [
+            ["click", this.onCameraClick],
+            ["dblclick", this.onCameraDoubleClick]
+          ]
+        },
+        speech: {
+          property: "speechButton",
+          className: "bluefox-speech-button",
+          ariaLabel: "Afficher ou masquer les paroles de BlueFox",
+          title: "Afficher ou masquer les paroles de BlueFox",
+          content: "<span>💬</span>",
+          listeners: [["click", this.onSpeechToggle]]
+        }
+      };
+      const definition = definitions[control];
+      if (!definition) return null;
+
+      let node = this[definition.property];
+      if (!node || !node.isConnected) {
+        const existing = document.querySelector(`.${definition.className}`);
+        node = existing || document.createElement("button");
+        node.type = "button";
+        node.classList.add(definition.className);
+        node.setAttribute("aria-label", definition.ariaLabel);
+        node.title = definition.title;
+        if (!node.querySelector("span")) node.innerHTML = definition.content;
+        if (!node.isConnected) document.body.appendChild(node);
+        this[definition.property] = node;
+      }
+
+      definition.listeners.forEach(([type, listener]) => {
+        if (!listener) return;
+        const key = `bluefox${type}Bound`;
+        if (node.dataset[key] === "1") return;
+        node.addEventListener(type, listener);
+        node.dataset[key] = "1";
+      });
+      return node;
+    }
+
+    setHudHighlight(control, enabled = true) {
+      const node = this.ensureHudControl(control);
+      if (!node) return false;
+      node.classList.toggle("bluefox-ui-highlight", enabled === true);
+      node.setAttribute("data-bluefox-highlight", enabled === true ? "true" : "false");
+      return true;
     }
 
     ensureCompassNeedle(force = false) {
@@ -1022,11 +1068,13 @@
     }
 
     updateCameraButton(mode) {
-      if (!this.cameraButton) return;
+      const button = this.ensureHudControl("camera");
+      if (!button) return;
       const free = mode === "free-follow";
-      this.cameraButton.classList.toggle("free", free);
-      this.cameraButton.setAttribute("aria-pressed", free ? "true" : "false");
-      this.cameraButton.querySelector("span").textContent = free ? "⊘" : "◎";
+      button.classList.toggle("free", free);
+      button.setAttribute("aria-pressed", free ? "true" : "false");
+      const icon = button.querySelector("span");
+      if (icon) icon.textContent = free ? "⊘" : "◎";
     }
 
     updateSpeechButton() {
@@ -1034,8 +1082,9 @@
         "bluefox-speech-hidden",
         !this.speechVisible
       );
-      this.speechButton?.classList.toggle("disabled", !this.speechVisible);
-      this.speechButton?.setAttribute(
+      const button = this.ensureHudControl("speech");
+      button?.classList.toggle("disabled", !this.speechVisible);
+      button?.setAttribute(
         "aria-pressed",
         this.speechVisible ? "true" : "false"
       );
@@ -1197,6 +1246,8 @@
           this.character.root.position
         );
         this.cameraController.ensureHealthy(now);
+        this.ensureHudControl("camera");
+        this.ensureHudControl("speech");
         this.lastActivityAt = now;
         this.lastAutonomyAt = Math.min(this.lastAutonomyAt, now - 4800);
         this.resize();
@@ -1601,7 +1652,7 @@
         candidates.push({ point, pathLength });
       }
       candidates.sort((a, b) => a.pathLength - b.pathLength);
-      const result = {
+      return {
         point: candidates[0]?.point || this.character.pathPlanner.nearestClearGoal(
           anchor.position.clone().add(fromResource.normalize()
             .multiplyScalar(approachDistance)),
@@ -1611,15 +1662,6 @@
         ),
         approachDistance
       };
-      if (object?.userData && result.point) {
-        object.userData.__cachedInteractionApproach = {
-          point: result.point.clone?.() || result.point,
-          approachDistance: result.approachDistance,
-          at: performance.now(),
-          mapId: this.currentMapId
-        };
-      }
-      return result;
     }
 
 
@@ -1717,23 +1759,10 @@
 
     targetInteraction(object, retry = false) {
       this.pendingZoneExploration = null;
-      const cachedApproach = object?.userData?.__cachedInteractionApproach;
-      const cachedFresh = Boolean(
-        !retry &&
-        cachedApproach?.point &&
-        cachedApproach.mapId === this.currentMapId &&
-        performance.now() - Number(cachedApproach.at || 0) < 1500
+      const approach = this.interactionApproachPoint(
+        object,
+        retry ? this.interactionApproachAttempts : 0
       );
-      const approach = cachedFresh
-        ? {
-            point: cachedApproach.point.clone?.() || cachedApproach.point,
-            approachDistance: cachedApproach.approachDistance
-          }
-        : this.interactionApproachPoint(
-            object,
-            retry ? this.interactionApproachAttempts : 0
-          );
-      if (object?.userData) delete object.userData.__cachedInteractionApproach;
       this.pendingInteraction = object;
       object.userData.approachDistance = approach.approachDistance;
       object.userData.interactionProfile = this.interactionProfile(object);

@@ -3,7 +3,7 @@
 
   const BF = global.BlueFox3D = global.BlueFox3D || {};
   const Missions = BF.Missions = BF.Missions || {};
-  const VERSION = "context-msc-v2-transition-batch";
+  const VERSION = "context-msc-v1";
 
   const normalize = (value) => String(value ?? "").trim().toLowerCase();
 
@@ -23,11 +23,15 @@
   const contextMatches = (node, detail) => {
     const expectedId = node?.params?.microSceneId;
     if (expectedId != null &&
-        normalize(expectedId) !== normalize(detail.microSceneId)) return false;
+        normalize(expectedId) !== normalize(detail.microSceneId)) {
+      return false;
+    }
 
     const expectedMissionId = node?.params?.mscMissionId;
     if (expectedMissionId != null &&
-        normalize(expectedMissionId) !== normalize(detail.mscMissionId)) return false;
+        normalize(expectedMissionId) !== normalize(detail.mscMissionId)) {
+      return false;
+    }
 
     const expectedRole = node?.params?.contextRole;
     if (expectedRole != null) {
@@ -36,39 +40,26 @@
     }
 
     const rarity = node?.params?.rarity;
-    if (rarity != null && normalize(rarity) !== normalize(detail.rarity)) return false;
+    if (rarity != null && normalize(rarity) !== normalize(detail.rarity)) {
+      return false;
+    }
 
     return true;
   };
 
-  const activeContextNodes = () => {
+  const progressContextMissions = (detail = {}) => {
     const manager = BF.currentEngine?.missionManager;
-    if (!manager?.trees?.size) return [];
-    const result = [];
+    if (!manager?.trees?.size || !detail.microSceneId) return 0;
+
+    let changed = 0;
     manager.trees.forEach((tree, missionId) => {
       if (manager.ensureLifecycle?.(missionId)?.status !== "active") return;
+      let treeChanged = false;
+
       tree.availableLeaves().forEach((node) => {
-        if (node.isComplete || node.params?.biblePattern !== "CONTEXT_MSC") return;
-        result.push({ tree, missionId, node });
-      });
-    });
-    return result;
-  };
-
-  const applyContextDetails = (details = []) => {
-    const manager = BF.currentEngine?.missionManager;
-    if (!manager || !details.length) return 0;
-
-    const nodes = activeContextNodes();
-    if (!nodes.length) return 0;
-
-    const changedTrees = new Set();
-    let changed = 0;
-
-    details.forEach((detail) => {
-      if (!detail?.microSceneId) return;
-      nodes.forEach(({ tree, node }) => {
-        if (node.isComplete || !contextMatches(node, detail)) return;
+        if (node.isComplete) return;
+        if (node.params?.biblePattern !== "CONTEXT_MSC") return;
+        if (!contextMatches(node, detail)) return;
 
         const distinctBy = String(node.params?.distinctBy || "microSceneInstance").trim();
         let identity = null;
@@ -88,14 +79,14 @@
 
         if (progressed) {
           changed += 1;
-          changedTrees.add(tree);
+          treeChanged = true;
         }
       });
-    });
 
-    changedTrees.forEach((tree) => {
-      tree.refresh();
-      manager.memory?.saveTree?.(tree);
+      if (treeChanged) {
+        tree.refresh();
+        manager.memory?.saveTree?.(tree);
+      }
     });
 
     if (changed) {
@@ -112,27 +103,56 @@
     if (!microSceneId) return null;
     const template = templateOf(microSceneId);
     let root = object;
-    while (root?.parent && !root.userData?.microSceneInstance) root = root.parent;
+    while (root?.parent && !root.userData?.microSceneInstance) {
+      root = root.parent;
+    }
     const instanceRoot = root?.userData?.microSceneInstance ? root : null;
 
     return {
       microSceneId,
-      microSceneInstanceId: instanceRoot?.uuid || instanceRoot?.id || null,
-      mapId: event?.mapId ?? BF.currentEngine?.currentMapId ?? null,
-      zoneId: event?.zoneId ?? BF.currentEngine?.currentZoneIndex ?? null,
+      microSceneInstanceId:
+        instanceRoot?.uuid ||
+        instanceRoot?.id ||
+        null,
+      mapId:
+        event?.mapId ??
+        BF.currentEngine?.currentMapId ??
+        null,
+      zoneId:
+        event?.zoneId ??
+        BF.currentEngine?.currentZoneIndex ??
+        null,
       rarity: template?.rarity || null,
       mscMissionId: template?.missionId || null,
       missionOnly: template?.missionOnly === true,
-      contextRole: template?.missionOnly === true ? "objectiveSubject" : "scenarioSupport"
+      contextRole:
+        template?.missionOnly === true
+          ? "objectiveSubject"
+          : "scenarioSupport"
     };
   };
 
   const onObjectEvent = (event) => {
-    if (!activeContextNodes().length) return;
-    const object = event?.object || event?.detail?.object || null;
+    const object =
+      event?.object ||
+      event?.detail?.object ||
+      null;
     if (!object) return;
     const detail = describeMSCObject(object, event);
-    if (detail) applyContextDetails([detail]);
+    if (!detail) return;
+    progressContextMissions(detail);
+  };
+
+  const activeContextMissionExists = () => {
+    const manager = BF.currentEngine?.missionManager;
+    if (!manager?.trees?.size) return false;
+    for (const [missionId, tree] of manager.trees) {
+      if (manager.ensureLifecycle?.(missionId)?.status !== "active") continue;
+      if (tree.availableLeaves().some((node) =>
+        node.params?.biblePattern === "CONTEXT_MSC" && !node.isComplete
+      )) return true;
+    }
+    return false;
   };
 
   const currentMicroSceneIndex = () =>
@@ -141,13 +161,13 @@
     [];
 
   const scanCurrentMap = () => {
-    if (!activeContextNodes().length) return 0;
+    if (!activeContextMissionExists()) return 0;
     const engine = BF.currentEngine;
     if (!engine) return 0;
-
-    const details = currentMicroSceneIndex()
-      .filter((entry) => entry?.id)
-      .map((entry) => ({
+    let changed = 0;
+    currentMicroSceneIndex().forEach((entry) => {
+      if (!entry?.id) return;
+      changed += progressContextMissions({
         microSceneId: entry.id,
         microSceneInstanceId: entry.instanceId || null,
         mapId: engine.currentMapId || null,
@@ -156,34 +176,27 @@
         mscMissionId: entry.missionId || null,
         missionOnly: entry.missionOnly === true,
         contextRole: entry.missionOnly === true ? "objectiveSubject" : "scenarioSupport"
-      }));
-
-    return applyContextDetails(details);
+      });
+    });
+    return changed;
   };
 
-  let transitionScanTimer = null;
   const onMapTransition = () => {
-    if (!activeContextNodes().length) return;
-    if (transitionScanTimer) global.clearTimeout?.(transitionScanTimer);
-    transitionScanTimer = global.setTimeout?.(() => {
-      transitionScanTimer = null;
-      scanCurrentMap();
-    }, 120);
+    global.setTimeout?.(() => scanCurrentMap(), 0);
   };
 
   const install = () => {
     if (BF.__contextMSCBridgeVersion === VERSION) return true;
-    BF.__contextMSCUnsubscribe?.();
     if (BF.ObjectEvents?.subscribe) {
       BF.__contextMSCUnsubscribe = BF.ObjectEvents.subscribe(onObjectEvent);
     }
-    global.removeEventListener?.("bluefox:map-transition-completed", onMapTransition);
     global.addEventListener?.("bluefox:map-transition-completed", onMapTransition);
     BF.__contextMSCBridgeVersion = VERSION;
+    global.setTimeout?.(() => scanCurrentMap(), 0);
     return true;
   };
 
-  BF.progressContextMSCMissions = (detail) => applyContextDetails([detail]);
+  BF.progressContextMSCMissions = progressContextMissions;
   BF.scanContextMSC = scanCurrentMap;
   BF.installContextMSCBridge = install;
   BF.getContextMSCDiagnostics = () => ({

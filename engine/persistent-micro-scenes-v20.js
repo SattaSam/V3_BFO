@@ -16,8 +16,86 @@
     return definition.persistentMicroScenes;
   };
 
+  const missionMemory = () =>
+    BF.currentEngine?.missionManager?.memory || null;
+
+  const siteProgression = () => {
+    const memory = missionMemory();
+    if (!memory?.state) return null;
+    memory.state.siteProgression ||= {};
+    return memory.state.siteProgression;
+  };
+
   const saveDefinition = (definition) =>
     BF.MapIntegrity?.persistGeneratedDefinition?.(definition) || false;
+
+  const saveSiteRecord = (definition, record) => {
+    const sites = siteProgression();
+    const memory = missionMemory();
+    if (!sites || !memory || !definition?.id || !record?.microSceneId) return false;
+
+    const id = recordId(definition, record);
+    sites[id] = {
+      instanceId: id,
+      mapId: definition.id,
+      missionId: record.missionId || null,
+      kind: record.kind || null,
+      stage: record.stage || null,
+      microSceneId: record.microSceneId,
+      anchor: record.anchor ? clone(record.anchor) : null,
+      rotation: Number(record.rotation) || 0,
+      fixedAnchor: record.fixedAnchor === true,
+      persistent: record.persistent !== false,
+      spawnOnce: record.spawnOnce !== false,
+      createdAt: record.createdAt || Date.now(),
+      resolvedAt: record.resolvedAt || 0
+    };
+    memory.save();
+    return true;
+  };
+
+  const hydrateSites = (definition) => {
+    const sites = siteProgression();
+    if (!sites || !definition?.id) return 0;
+
+    let added = 0;
+    Object.values(sites).forEach((site) => {
+      if (
+        !site ||
+        site.mapId !== definition.id ||
+        !site.microSceneId ||
+        site.persistent === false
+      ) return;
+
+      const id = recordId(definition, site);
+      const records = list(definition);
+      const existing = records.find((entry) => recordId(definition, entry) === id);
+      if (existing) {
+        Object.assign(existing, clone(site));
+        return;
+      }
+
+      records.push(clone(site));
+      added += 1;
+    });
+    return added;
+  };
+
+  const canonicalPlacement = (definition, microSceneId) => {
+    const placement = definition?.crashSite?.campSitePlacements?.[microSceneId];
+    if (!placement?.position) return null;
+    const rotation = Array.isArray(placement.rotation)
+      ? Number(placement.rotation[1]) || 0
+      : Number(placement.rotation) || 0;
+    return {
+      anchor: {
+        x: Number(placement.position.x) || 0,
+        y: Number(placement.position.y) || 0,
+        z: Number(placement.position.z) || 0
+      },
+      rotation
+    };
+  };
 
   const pointInside = (region, point, radius = 0) => (
     point.x >= Number(region.minX) + radius &&
@@ -112,9 +190,23 @@
     const template = BF.MicroScenes?.get?.(record.microSceneId);
     if (!template || !BF.ObjectSpawner) return false;
 
+    const canonical = canonicalPlacement(definition, record.microSceneId);
+    if (canonical) {
+      record.anchor = canonical.anchor;
+      record.rotation = canonical.rotation;
+      record.fixedAnchor = true;
+    }
+
     const radius = Math.max(1, Number(template.radius) || Number(record.radius) || 7);
     const preferred = record.anchor || null;
-    const anchor = findSafeAnchor(built, definition, radius, preferred);
+    const anchor = record.fixedAnchor === true
+      ? preferred && {
+          x: Number(preferred.x) || 0,
+          y: Number(preferred.y) || 0,
+          z: Number(preferred.z) || 0
+        }
+      : findSafeAnchor(built, definition, radius, preferred);
+
     if (!anchor) {
       console.warn("[BlueFox] Aucun emplacement sûr pour la micro-scène persistante.", {
         mapId: definition.id,
@@ -179,6 +271,7 @@
     record.spawnOnce = record.spawnOnce !== false;
     record.resolvedAt = record.resolvedAt || Date.now();
     saveDefinition(definition);
+    saveSiteRecord(definition, record);
 
     return true;
   };
@@ -190,26 +283,38 @@
     const records = list(definition);
     let record = records.find((entry) => recordId(definition, entry) === id);
 
+    const canonical = canonicalPlacement(definition, spec.microSceneId);
+    const normalized = {
+      instanceId: id,
+      missionId: spec.missionId || null,
+      kind: spec.kind || null,
+      stage: spec.stage || null,
+      microSceneId: spec.microSceneId,
+      anchor: canonical?.anchor || (spec.anchor ? clone(spec.anchor) : null),
+      rotation: canonical?.rotation ?? (Number(spec.rotation) || 0),
+      fixedAnchor: Boolean(canonical) || spec.fixedAnchor === true,
+      persistent: spec.persistent !== false,
+      spawnOnce: spec.spawnOnce !== false,
+      createdAt: spec.createdAt || Date.now()
+    };
+
     if (!record) {
-      record = {
-        instanceId: id,
-        missionId: spec.missionId || null,
-        microSceneId: spec.microSceneId,
-        anchor: spec.anchor ? clone(spec.anchor) : null,
-        rotation: Number(spec.rotation) || 0,
-        persistent: spec.persistent !== false,
-        spawnOnce: spec.spawnOnce !== false,
-        createdAt: Date.now()
-      };
+      record = normalized;
       records.push(record);
-      saveDefinition(definition);
+    } else {
+      Object.assign(record, normalized, {
+        createdAt: record.createdAt || normalized.createdAt
+      });
     }
 
+    saveDefinition(definition);
+    saveSiteRecord(definition, record);
     return record;
   };
 
   const spawnForBuiltMap = (THREE, built, definition) => {
     if (!built || !definition) return 0;
+    hydrateSites(definition);
     let count = 0;
     list(definition).forEach((record) => {
       if (record.persistent === false) return;

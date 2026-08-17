@@ -296,10 +296,24 @@
     if (harvestRoot) harvest(entries, harvestRoot);
   };
 
+  const runtimeCategory = (type) => {
+    if (type === "npc_translucent" || type === "npc_rocky") return "npc";
+    if (type === "nocturnal_animal") return "fauna";
+    if (type === "carnivorous_plant") return "flora";
+    return "phenomenon";
+  };
+
   let lastBehaviorUpdate = 0;
   const update = (scene, elapsed) => {
     const entries = collect(scene);
-    entries.forEach((entry) => updateObject(entry, elapsed));
+    entries.forEach((entry) => {
+      const budget = BF.RuntimeBudget;
+      if (
+        budget?.shouldUpdate &&
+        !budget.shouldUpdate(entry.root, runtimeCategory(entry.type), elapsed)
+      ) return;
+      updateObject(entry, elapsed);
+    });
     const now = Date.now();
     if (now - lastBehaviorUpdate < 1000) return;
     lastBehaviorUpdate = now;
